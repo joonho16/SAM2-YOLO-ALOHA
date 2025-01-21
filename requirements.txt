@@ -1,0 +1,14 @@
+matplotlib
+omegaconf
+torch
+tdqm
+einops
+torchvision
+IPython
+scikit-image
+opencv-python
+rospkg
+dm-env
+h5py
+Pillow
+pynput
