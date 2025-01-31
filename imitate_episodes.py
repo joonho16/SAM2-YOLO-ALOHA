@@ -63,9 +63,7 @@ def main(args):
     camera_config = task_config['camera_config']
     home_pose = task_config['home_pose']
     end_pose = task_config['end_pose']
-
-    is_masked_yolo = task_config['is_masked_yolo']
-
+    pose_sleep = task_config['pose_sleep']
 
     # fixed parameters
     state_dim = 7
@@ -111,7 +109,7 @@ def main(args):
         'real_robot': not is_sim,
         'end_pose': end_pose,
         'home_pose': home_pose,
-        'is_masked_yolo': is_masked_yolo,
+        'pose_sleep': pose_sleep,
         'data_folders': data_folders
     }
 
@@ -133,12 +131,14 @@ def main(args):
     for folder in config['data_folders']:
         origin_dir = f"{dataset_dir}/{folder}"
         if os.path.exists(origin_dir):
-            move_data_to_tmp(f"{origin_dir}", f"{dataset_dir}/tmp", start_num)
-            start_num += num_episodes
+            file_count = move_data_to_tmp(f"{origin_dir}", f"{dataset_dir}/tmp", start_num)
+            start_num += file_count
         else:
             print(f"{origin_dir} 폴더가 존재하지 하지 않습니다.")
 
     train_dataloader, val_dataloader, stats, _ = load_data(f"{dataset_dir}/tmp", start_num, camera_names, batch_size_train, batch_size_val)
+
+
 
     # save dataset stats
     if not os.path.isdir(ckpt_dir):
@@ -202,25 +202,15 @@ def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
         plt.savefig(plot_path)
     print(f'Saved plots to {ckpt_dir}')
 
-def get_image(ts, camera_names, camera_config, yolo_config, memory=None):
+def get_image(ts, camera_names, camera_config, yolo_config, memories):
     curr_images = []
     raw_images = []
-    
-    if memory is None:
-        memory = {
-            'is_first_img': True,
-        }
-        for cam_name in camera_names:
-            memory[cam_name] = {
-                'boxes': []
-            }
 
-    for cam_name in camera_names:
+    for index, cam_name in enumerate(camera_names):
         image = ts.observation['images'][cam_name]
 
-
         if cam_name in camera_config:
-            image, memory = fetch_image_with_config(image, camera_config, memory, yolo_config)
+            image, memories[index] = fetch_image_with_config(image, camera_config[cam_name], memories[index], yolo_config)
 
         raw_images.append(image)
         curr_image = rearrange(image, 'h w c -> c h w')
@@ -246,7 +236,7 @@ def get_image(ts, camera_names, camera_config, yolo_config, memory=None):
     curr_image = np.stack(curr_images, axis=0)
     curr_image = torch.from_numpy(curr_image / 255.0).float().cuda().unsqueeze(0)
 
-    return curr_image, memory
+    return curr_image, memories
 
 def eval_bc(config, ckpt_name, record_episode=True):
     set_seed(1000)
@@ -263,12 +253,14 @@ def eval_bc(config, ckpt_name, record_episode=True):
     onscreen_cam = 'angle'
     home_pose = config['home_pose']
     end_pose = config['end_pose']
+    pose_sleep = config['pose_sleep']
 
-    dataset_dir = f'datasets/{task_name}/hgdagger'
+    dataset_dir = f'datasets/{task_name}/original'
 
     yolo_config = {
-        'model': YOLO('runs/detect/train15/weights/best.pt'),
-        'conf': 0.5
+        'model': YOLO('runs/detect/train3/weights/best.pt'),
+        'conf': 0.7,
+        'padding': 3
     }
 
     # load policy and stats
@@ -291,10 +283,13 @@ def eval_bc(config, ckpt_name, record_episode=True):
     # load environment
     if real_robot:
         # from aloha_scripts.robot_utils import move_grippers # requires aloha
-        from env import make_env # requires aloha
+        from env import AlohaEnv
+        import rospy
 
-        env = make_env(camera_names)
+        rospy.init_node("imitate_episode_node", anonymous=False)
+        env = AlohaEnv(camera_names)
         env_max_reward = 0
+
     # else:
         # from sim_env import make_sim_env
         # env = make_sim_env(task_name)
@@ -306,9 +301,9 @@ def eval_bc(config, ckpt_name, record_episode=True):
         num_queries = policy_config['num_queries']
 
     data_timesteps = max_timesteps
-    max_timesteps = int(max_timesteps * 2) # may increase for real-world tasks
+    max_timesteps = int(max_timesteps * 1.5) # may increase for real-world tasks
 
-    num_rollouts = 10
+    num_rollouts = 100
     episode_returns = []
     highest_rewards = []
     for rollout_id in range(num_rollouts):
@@ -324,8 +319,7 @@ def eval_bc(config, ckpt_name, record_episode=True):
         print('go home pose!')
         for pos in home_pose:
             env.move_joint(pos)
-
-        time.sleep(10)
+            time.sleep(pose_sleep)
 
         ts = env.reset()
         timesteps = [ts]
@@ -347,77 +341,77 @@ def eval_bc(config, ckpt_name, record_episode=True):
 
         with torch.inference_mode():
             print('move!')
-            memory = None
+            memories = [None] * len(camera_names)
             for t in tqdm(range(max_timesteps)):
-                try:
-                    start = time.time()
-                    ### process previous timestep to get qpos and image_list
-                    timesteps.append(ts)
-                    obs = ts.observation
+                # try:
+                start = time.time()
+                ### process previous timestep to get qpos and image_list
+                timesteps.append(ts)
+                obs = ts.observation
 
-                    if onscreen_render:
-                        ax.clear()  # 이전 이미지 지우기
-                        ax.imshow(ts.observation['images']['cam_3'])
-                        ax.set_title(f'Timestep: {t}')
-                        ax.axis('off')
-                        plt.draw()
-                        plt.pause(0.1)
+                if onscreen_render:
+                    ax.clear()  # 이전 이미지 지우기
+                    ax.imshow(ts.observation['images']['cam_3'])
+                    ax.set_title(f'Timestep: {t}')
+                    ax.axis('off')
+                    plt.draw()
+                    plt.pause(0.1)
 
-                    if 'images' in obs:
-                        image_list.append(obs['images'])
-                    else:
-                        image_list.append({'main': obs['image']})
-                    
-                    qpos_numpy = np.array(obs['qpos'])
-                    qpos = pre_process(qpos_numpy)
-                    qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
-                    qpos_history[:, t] = qpos
+                if 'images' in obs:
+                    image_list.append(obs['images'])
+                else:
+                    image_list.append({'main': obs['image']})
+                
+                qpos_numpy = np.array(obs['qpos'])
+                qpos = pre_process(qpos_numpy)
+                qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
+                qpos_history[:, t] = qpos
 
-                    curr_image, memory = get_image(ts, camera_names, config['camera_config'], yolo_config, memory)
+                curr_image, memories = get_image(ts, camera_names, config['camera_config'], yolo_config, memories)
 
-                    if not tcp_ctr.controlling:
-                        ### query policy
-                        if config['policy_class'] == "ACT":
-                            if t % query_frequency == 0:
-                                all_actions = policy(qpos, curr_image)
-                            if temporal_agg:
-                                all_time_actions[[t], t:t+num_queries] = all_actions
-                                actions_for_curr_step = all_time_actions[:, t]
-                                actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
-                                actions_for_curr_step = actions_for_curr_step[actions_populated]
-                                k = 0.01
-                                exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
-                                exp_weights = exp_weights / exp_weights.sum()
-                                exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
-                                raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
-                            else:
-                                raw_action = all_actions[:, t % query_frequency]
-                        elif config['policy_class'] == "CNNMLP":
-                            raw_action = policy(qpos, curr_image)
+                if not tcp_ctr.controlling:
+                    ### query policy
+                    if config['policy_class'] == "ACT":
+                        if t % query_frequency == 0:
+                            all_actions = policy(qpos, curr_image)
+                        if temporal_agg:
+                            all_time_actions[[t], t:t+num_queries] = all_actions
+                            actions_for_curr_step = all_time_actions[:, t]
+                            actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
+                            actions_for_curr_step = actions_for_curr_step[actions_populated]
+                            k = 0.01
+                            exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
+                            exp_weights = exp_weights / exp_weights.sum()
+                            exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
+                            raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
                         else:
-                            raise NotImplementedError
-                        ### post-process actions
-                        raw_action = raw_action.squeeze(0).cpu().numpy()
-                        action = post_process(raw_action)
-                        target_qpos = action
-                        # print(f"Get Action Time: {time.time() - start}")
-                        ### step the environment
-                        ts = env.move_step(target_qpos)
+                            raw_action = all_actions[:, t % query_frequency]
+                    elif config['policy_class'] == "CNNMLP":
+                        raw_action = policy(qpos, curr_image)
                     else:
-                        tcp_ctr.decide_direction()
-                        all_time_actions[:, :, :] = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim])
-                        ts = env.record_step()
-                    ### for visualization
-                    qpos_list.append(qpos_numpy)
-                    target_qpos_list.append(target_qpos)
-                    rewards.append(ts.reward)
-                    # print(f"Get Move Time: {time.time() - start}")
+                        raise NotImplementedError
+                    ### post-process actions
+                    raw_action = raw_action.squeeze(0).cpu().numpy()
+                    action = post_process(raw_action)
+                    target_qpos = action
+                    # print(f"Get Action Time: {time.time() - start}")
+                    ### step the environment
+                    ts = env.move_step(target_qpos)
+                else:
+                    tcp_ctr.decide_direction()
+                    all_time_actions[:, :, :] = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim])
+                    ts = env.record_step()
+                ### for visualization
+                qpos_list.append(qpos_numpy)
+                target_qpos_list.append(target_qpos)
+                rewards.append(ts.reward)
+                # print(f"Get Move Time: {time.time() - start}")
 
-                    actions.append(target_qpos)
+                actions.append(target_qpos)
 
-                except Exception as e:
-                    print("Error: %s" % e)
-                    return False
+                # except Exception as e:
+                #     print("Error: %s" % e)
+                #     return False
                 
             plt.close()
         if real_robot:
@@ -427,9 +421,9 @@ def eval_bc(config, ckpt_name, record_episode=True):
         if len(end_pose) > 0:
             for pos in end_pose:
                 env.move_joint(pos)
-            
-            time.sleep(10)
+                time.sleep(pose_sleep)
 
+            
         rewards = np.array(rewards)
         episode_return = np.sum(rewards[rewards!=None])
         episode_returns.append(episode_return)
@@ -439,8 +433,13 @@ def eval_bc(config, ckpt_name, record_episode=True):
 
         if record_episode:
             d = input("Will you save this data? (Input 'y' for yes)")
-            if d == 'y':
-                record_eval_episode(timesteps, actions, camera_names, config['camera_config'], data_timesteps, state_dim, dataset_dir)
+            if len(d) > 0 and d[-1] == 'y':
+                record_eval_episode(timesteps, actions, camera_names, config['camera_config'], data_timesteps, state_dim, dataset_dir, yolo_config)
+            else:
+                d = input("Will you record new data? (Input 'y' for yes)")
+                if d == 'y':
+                    record_new_episode(task_name)
+
 
     success_rate = np.mean(np.array(highest_rewards) == env_max_reward)
     avg_return = np.mean(episode_returns)
@@ -463,7 +462,7 @@ def eval_bc(config, ckpt_name, record_episode=True):
     return success_rate, avg_return
 
 
-def record_eval_episode(timesteps, actions, camera_names, camera_config, max_timesteps, joint_len, dataset_dir):
+def record_eval_episode(timesteps, actions, camera_names, camera_config, max_timesteps, joint_len, dataset_dir, yolo_config):
     timesteps.pop(len(timesteps) - 1)
 
     image_size = (120, 160)
@@ -479,6 +478,7 @@ def record_eval_episode(timesteps, actions, camera_names, camera_config, max_tim
             data_dict[f'/observations/images/{cam_name}'] = []
             
         episode_i = get_auto_index(dataset_dir=dataset_dir)
+        memory = None
         for j in range(max_timesteps):
             ts = timesteps.pop(0)
             action = actions.pop(0)
@@ -491,14 +491,9 @@ def record_eval_episode(timesteps, actions, camera_names, camera_config, max_tim
                 image = ts.observation['images'][cam_name]
 
                 if cam_name in camera_config:
-                    image_size = camera_config[cam_name]['size']
-                    if 'zoom' in camera_config[cam_name]:
-                        size = camera_config[cam_name]['zoom']['size']
-                        point = camera_config[cam_name]['zoom']['point']
-                        image = zoom_image(image, point, size)
-                    if 'resize' in camera_config[cam_name]:
-                        size = camera_config[cam_name]['resize']['size']
-                        image = cv2.resize(image, size)
+
+                    image, memory = fetch_image_with_config(image, camera_config[cam_name], memory, yolo_config)
+
                 if ts.observation['images'][cam_name] is not None:
                     data_dict[f'/observations/images/{cam_name}'].append(image)
                 else:
@@ -525,6 +520,28 @@ def record_eval_episode(timesteps, actions, camera_names, camera_config, max_tim
                 root[name][...] = array
 
         print(f'Saving: {time.time() - t0:.1f} secs', dataset_name)
+
+
+def record_new_episode(task_name):
+    import subprocess
+
+    cmd1 = ['python', 'dynamixel_publisher.py']
+    cmd2 = ["bash", "auto_record.sh", task_name, '1']
+
+    p1 = subprocess.Popen(cmd1)
+    p2 = subprocess.Popen(cmd2)
+
+    try:
+        while p2.poll() is None:  # p2가 실행 중인지 확인
+            time.sleep(1)
+    finally:
+        print("Record Episode has Finished.")
+        p1.terminate()  # p2가 종료되면 p1도 종료
+        p1.wait()  # 완전히 종료될 때까지 기다리기
+        print("Both process has finished")
+
+    return
+
 
 
 
@@ -604,19 +621,23 @@ def train_bc(train_dataloader, val_dataloader, config):
 
     return best_ckpt_info
 
-def move_data_to_tmp(origin_dir, tmp_dir, data_len): 
+def move_data_to_tmp(origin_dir, tmp_dir, data_len):
     # dark 디렉토리 안의 파일을 부모 디렉토리로 복사
+    file_count = 0
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
     for i, file_name in enumerate(os.listdir(origin_dir)):  # dark 디렉토리 내 파일 목록 가져오기
         file_path = os.path.join(origin_dir, file_name)  # 파일 전체 경로
         if os.path.isfile(file_path):  # 파일인지 확인
+            file_count += 1
             new_file_name = f"episode_{data_len + i}.hdf5"  # 파일 이름에 ~ 추가
             new_file_path = os.path.join(tmp_dir, new_file_name)  # 부모 디렉토리로 복사 경로 설정
             
             shutil.copy(file_path, new_file_path)  # 파일 복사
             print(f"{origin_dir}: {file_name} → {new_file_name} 로 복사 완료.")
+    
+    return file_count
 
 
 def get_auto_index(dataset_dir, dataset_name_prefix = '', data_suffix = 'hdf5'):

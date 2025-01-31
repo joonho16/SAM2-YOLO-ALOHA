@@ -79,14 +79,13 @@ class YoloViaSam2:
             print(f"총 {frame_count}개의 프레임이 {save_dir}에 저장되었습니다.")
 
 
-    def hdf5_to_jpg(self, hdf5_path, save_dir, cam_name, start_middle=False):
+    def hdf5_to_jpg(self, hdf5_path, save_dir, cam_name, start_point=0):
         os.makedirs(save_dir, exist_ok=True)
         with h5py.File(hdf5_path, 'r') as f:
             images = f[f"observations/images/{cam_name}"]
 
             episode_len = len(images)
             num = 0
-            start_point = episode_len // 2 if start_middle else 0
             for i in range(start_point, episode_len):
                 file_name = os.path.join(save_dir, f"{num:05d}.jpg")
 
@@ -265,7 +264,7 @@ class YoloViaSam2:
             }
             
         # 비디오로 세그먼트
-        vis_frame_stride = 100
+        vis_frame_stride = len(frame_names) // 5
         # Main code
         for out_frame_idx in range(0, len(frame_names)):
             image_path = os.path.join(jpg_dir, frame_names[out_frame_idx])
@@ -323,7 +322,7 @@ class YoloViaSam2:
 
         return colored_image
     
-    def merge_folders(self, src_folder, src_labeled_folder, start_index):
+    def merge_folders(self, src_folder, src_labeled_folder):
         
         os.makedirs(self.tmp_dir + '/' + self.task_name, exist_ok=True)
 
@@ -334,7 +333,7 @@ class YoloViaSam2:
         os.makedirs(tmp_folder, exist_ok=True)
         os.makedirs(tmp_label_folder, exist_ok=True)
 
-        count = start_index
+        count = len(os.listdir(tmp_folder))
 
         for filename in sorted(os.listdir(src_folder)):
             if filename.endswith(".jpg"):
@@ -351,8 +350,6 @@ class YoloViaSam2:
                     shutil.copy(src_label_path, dst_label_path)
                 
                 count += 1
-        return count
-    
 
     def data_augment(self):
         yolo_dag.main(self.tmp_dir + '/' + self.task_name + '/image', self.tmp_dir + '/' + self.task_name + '/label')
@@ -479,7 +476,7 @@ def input_caching(prompt):
 
 if __name__ == '__main__':
 
-    task_name = 'pick_tomato'
+    task_name = input_caching('Enter Task Name: ')
     config = YOLO_CONFIG[task_name]
     yolo_via_sam2 = YoloViaSam2(task_name, config)
 
@@ -505,13 +502,13 @@ if __name__ == '__main__':
             file_path = input_caching(f'Enter Hdf5 File Path for {folder_name} (Press Enter to Skip it.): ')
             if file_path != '':
                 cam_name = input_caching(f'Enter Camera Name for {folder_name} (Ex. camera1 / camera2): ')
-                start_middle = input_caching(f'Do you want to start at middle for {folder_name}? (Press "y" to process it.): ')
-                yolo_via_sam2.hdf5_to_jpg(file_path, jpg_dir, cam_name, start_middle == 'y')
+                start_point = int(input_caching(f'Enter Start Point for {folder_name}: '))
+                yolo_via_sam2.hdf5_to_jpg(file_path, jpg_dir, cam_name, start_point)
 
         answer = input(f'Sam2 to Bounding Box for {folder_name} (Press "y" to process it.): ')
 
         if answer == 'y':
-            image_path = jpg_dir + '/00001.jpg'
+            image_path = jpg_dir + '/00000.jpg'
             img = cv2.imread(image_path)
             point_groups, label_groups, class_ids = yolo_via_sam2.set_sam2_prompt(img, 2)
 
@@ -520,7 +517,7 @@ if __name__ == '__main__':
         answer = input_caching(f'Data to tmp for {folder_name} (Press "y" to process it.): ')
 
         if answer == 'y':
-            start_num = yolo_via_sam2.merge_folders(jpg_dir, label_dir, start_num)
+            yolo_via_sam2.merge_folders(jpg_dir, label_dir)
 
         torch.cuda.empty_cache()
 

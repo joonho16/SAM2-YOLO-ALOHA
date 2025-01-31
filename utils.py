@@ -218,7 +218,7 @@ def zoom_image(img, point, size):
 
 
 
-def fetch_image_with_config(image, config, memory=None, yolo_config=None, no_yolo=False):
+def fetch_image_with_config(image, config, memory=None, yolo_config=None, no_yolo=False, no_zoom=False):
     if memory is None:
         memory = {
             'is_first_image': True,
@@ -226,10 +226,10 @@ def fetch_image_with_config(image, config, memory=None, yolo_config=None, no_yol
             'last_box': {}
         }
 
-    if 'zoom' in config:
+    if 'zoom' in config and not no_zoom:
         size = config['zoom']['size']
         point = config['zoom']['point']
-        image = zoom_image(image, size, point)
+        image = zoom_image(image, point, size)
     if 'resize' in config:
         size = config['resize']['size']
         image = cv2.resize(image, size)
@@ -279,7 +279,7 @@ def fetch_image_with_config(image, config, memory=None, yolo_config=None, no_yol
                     memory['last_box'][class_name] = class_boxes[0]
 
         if len(show_boxes) > 0:
-            masked_image = mask_outside_boxes(image, show_boxes, padding=5)
+            masked_image = mask_outside_boxes(image, show_boxes, padding=yolo_config['padding'])
         image = masked_image
 
     

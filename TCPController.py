@@ -89,7 +89,7 @@ class TCPController:
             self.controlling = False
 
     def decide_direction(self):
-        scale = 0.005
+        scale = 0.003
         dir = [0, 0, 0, 0, 0, 0]
         gripper_scale = 0.01
         gripper_dir = 0

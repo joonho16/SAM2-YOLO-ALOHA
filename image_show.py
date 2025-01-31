@@ -8,7 +8,7 @@ import cv2
 import threading
 import numpy as np
 
-from utils import zoom_image, resize_image
+from utils import zoom_image
 from constants import TASK_CONFIGS
 
 from ultralytics import YOLO
@@ -64,7 +64,7 @@ class ImageSubscriber:
 
 def main():
     rospy.init_node('image_subscriber', anonymous=True)
-    task_name = 'pick_tomato'
+    task_name = 'grasp_cable'
     subscribers = []
     for cam_name in TASK_CONFIGS[task_name]['camera_names']:
         subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw'))
@@ -78,32 +78,13 @@ def main():
             image = subscribers[index].image
             if image is not None:
                 if cam_name in camera_config:
-                    if 'masked_yolo' in camera_config[cam_name]:
-                        masked_image = np.zeros_like(image)
-                        if camera_config[cam_name]['masked_yolo']['is_fixed_mask']:
-                            boxes = []
-                            if is_first_img:     
-                                results = yolo_model(image)
-                                for result in results:
-                                    boxes = result.boxes
-                                    classes = result.names
-                            if len(boxes) > 0:
-                                masked_image = mask_outside_boxes(image, boxes, padding=10, show_all=False, index=0)
-                                is_first_img = False
-                        else:
-                            results = yolo_model(image)
-                            for result in results:
-                                boxes = result.boxes
-                                classes = result.names
-                            masked_image = mask_outside_boxes(image, boxes, padding=10, show_all=False, index=9)
-                        image = masked_image
                     if 'zoom' in camera_config[cam_name]:
-                        zoom_factor = camera_config[cam_name]['zoom']['rate']
+                        size = camera_config[cam_name]['zoom']['size']
                         point = camera_config[cam_name]['zoom']['point']
-                        image = zoom_image(image, zoom_factor, point)
+                        image = zoom_image(image, point, size)
                     if 'resize' in camera_config[cam_name]:
-                        resize_rate = camera_config[cam_name]['resize']['rate']
-                        image = resize_image(image, resize_rate)
+                        size = camera_config[cam_name]['resize']['size']
+                        image = cv2.resize(image, size)
                     images.append(image)
         if images:
             

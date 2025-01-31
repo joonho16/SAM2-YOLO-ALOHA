@@ -37,27 +37,62 @@ TASK_CONFIGS = {
         'camera_names': ['cam_1', 'cam_2', 'cam_3', 'digit'],
     },
     'grasp_cable':{
-        'dataset_dir': DATA_DIR + '/grasp_cable_new',
-        'num_episodes': 95,
-        'episode_len': 240,
+        'dataset_dir': DATA_DIR + '/grasp_cable',
+        'num_episodes': 258,
+        'episode_len': 150,
         'camera_names': ['camera1', 'camera2'],
         'camera_config': {
             'camera1': {
                 'zoom': {
-                    'ratio': 1 / 4,
-                    'point': [480, 300],
+                    'point': [300, 80],
                     'size': (160, 120)
                 },
+                # 'masked_yolo': {
+                #     'model_path': 'yolo/runs/detect/train21/weights/best.pt',
+                #     'classes': {
+                #         'cable': {
+                #             'id': 0,
+                #             'is_fixed_mask': False,
+                #             'show_id': 0,
+                #             'keep_last_box': True
+                #         },
+                #         'gripper': {
+                #             'id': 1,
+                #             'is_fixed_mask': False,
+                #             'show_id': 0,
+                #             'keep_last_box': True,
+                #         }
+                #     }
+                # },
             },
             'camera2': {
                 'resize': {
                     'ratio': 4,
                     'size': (160, 120)
-                }
+                },
+                # 'masked_yolo': {
+                #     'model_path': 'yolo/runs/detect/train21/weights/best.pt',
+                #     'classes': {
+                #         'cable': {
+                #             'id': 0,
+                #             'is_fixed_mask': False,
+                #             'show_id': 0,
+                #             'keep_last_box': True
+                #         },
+                #         'gripper': {
+                #             'id': 1,
+                #             'is_fixed_mask': False,
+                #             'show_id': -1,
+                #             'keep_last_box': True,
+                #         }
+                #     }
+                # },
             }
         },
-        'home_pose': [[-2.001, -1.315, -1.696, -0.004, 1.775, -1.552, 0.087], [-2.29, -1.95, -1.66, -0.46, 1.71, -1.62, 0.087]],
-        'end_pose': [[-1.819, -2.050, -2.384, 0.704, 2.205, -1.638, 0]]
+        'home_pose': [[-1.954, -1.108, -1.117, 0.158, 1.472, -1.511, 0.087]],
+        # 'end_pose': [[-1.023, -2.528, -0.955, 0.314, 2.057, -1.661, 0]]
+        'end_pose': [[-1.954, -1.108, -1.117, 0.158, 1.472, -1.511, 0.087]],
+        'pose_sleep': 6
     },
 
     'pick_tomato':{
@@ -65,12 +100,11 @@ TASK_CONFIGS = {
         'num_episodes': 45,
         'episode_len': 150,
         'camera_names': ['camera1', 'camera2'],
-        'is_masked_yolo': True,
         'camera_config': {
             'camera1': {
                 'resize': {
                     'ratio': 1 / 4,
-                    'size': (160, 120)
+                    'size': (320, 240)
                 },
                 'masked_yolo': {
                     'model_path': 'yolo/runs/detect/train2/weights/best.pt',
@@ -188,6 +222,18 @@ YOLO_CONFIG = {
     'pick_tomato': {
         'class_names': ['tomato', 'gripper'],
         'raw_data_dir': 'yolo/raw_data',
+        'data_dir': 'yolo/data',
+        'tmp_data_dir': 'yolo/tmp_data',
+        'yaml_dir': 'yolo',
+        'yolo_path': 'yolo/yolo11n.pt',
+        'checkpoint': 'sam2/checkpoints/sam2.1_hiera_large.pt',
+        'sam2_config_dir': 'sam2/sam2/configs/sam2.1',
+        'model_cfg_yaml': 'sam2.1_hiera_l.yaml',
+        'epochs': 100
+    },
+        'grasp_cable': {
+        'class_names': ['cable_head', 'gripper'],
+        'raw_data_dir': 'yolo/raw_data/grasp_cable',
         'data_dir': 'yolo/data',
         'tmp_data_dir': 'yolo/tmp_data',
         'yaml_dir': 'yolo',

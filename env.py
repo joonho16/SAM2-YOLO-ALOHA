@@ -34,7 +34,6 @@ class AlohaEnv:
         self.is_showing = False
         self.joint_names = JOINT_NAMES[robot_name]
         self.pyversion = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-        rospy.init_node("env_node", anonymous=False)
         if robot_name == 'ur5':
             rospy.Subscriber('ur5e/joint_states', JointState, self.joint_state_cb)
             rospy.Subscriber('ur5e/ur5e_scaled_pos_joint_traj_controller/command', JointTrajectory, self.master_joint_state_cb)

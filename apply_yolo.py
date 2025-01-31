@@ -304,6 +304,8 @@ def hdf5_to_yolo_image2(task_name, yolo_config):
 
     # 기본값 설정
 
+    os.makedirs(f"{TASK_CONFIGS[task_name]['dataset_dir']}/yolo", exist_ok=True)
+
     episode_len = TASK_CONFIGS[task_name]['episode_len']
     num_episodes = TASK_CONFIGS[task_name]['num_episodes']
     # # HDF5 파일 경로
@@ -315,7 +317,6 @@ def hdf5_to_yolo_image2(task_name, yolo_config):
     
         # # hdf5 사용하기      
         with h5py.File(hdf5_path, 'r') as f:
-            masked_images = []
             
             data_dict = {
                 '/observations/qpos': f[f'/observations/qpos'],
@@ -325,7 +326,6 @@ def hdf5_to_yolo_image2(task_name, yolo_config):
             }
 
             for im_name in TASK_CONFIGS[task_name]['camera_names']:
-
                 memory = None
 
                 camera_config = TASK_CONFIGS[task_name]['camera_config'][im_name]
@@ -335,13 +335,14 @@ def hdf5_to_yolo_image2(task_name, yolo_config):
                     data_dict[f'/observations/images/{im_name}'] = images
                     continue
 
+                masked_images = []
                 for image in images:
 
-                    fetched_image, memory = fetch_image_with_config(image, camera_config, memory, yolo_config)
+                    fetched_image, memory = fetch_image_with_config(image, camera_config, memory, yolo_config, no_zoom=True)
 
-                    # 마스킹 된 화면 보기
-                    cv2.imshow('Masked Image', cv2.resize(fetched_image, (640, 480)))
-                    cv2.waitKey(10)
+                    # # 마스킹 된 화면 보기
+                    # cv2.imshow('Masked Image', cv2.resize(fetched_image, (640, 480)))
+                    # cv2.waitKey(1)
 
                     masked_images.append(fetched_image)
                 
@@ -403,16 +404,16 @@ def camera_to_fetched_image(task_name, yolo_config):
 
 if __name__ == '__main__':
 
-    task_name = 'pick_tomato'
+    task_name = 'grasp_cable'
 
     yolo_config = {
-        'model': YOLO('runs/detect/train17/weights/best.pt'),
-        'conf': 0.4
+        'model': YOLO('runs/detect/train3/weights/best.pt'),
+        'conf': 0.5,
+        'padding': 3
     }
 
     width = 160
     height = 120
-    is_fixed_mask = False
     # camera_to_yolo_image2(task_name, model, width, height, is_fixed_mask)
     # hdf5_to_yolo_image(yolo_config['model'], width, height, task_name)
     # camera_to_fetched_image(task_name, yolo_config)

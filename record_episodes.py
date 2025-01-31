@@ -7,20 +7,14 @@ import h5py
 from constants import DT, TASK_CONFIGS, JOINT_NAMES
 import rospy
 import numpy as np
+import cv2
 
 from ultralytics import YOLO
 from apply_yolo import mask_outside_boxes
 
-from utils import resize_image, zoom_image
+from utils import zoom_image
 
 def capture_one_episode(env, max_timesteps, dataset_dir, camera_names, camera_config, dataset_name, overwrite=True):
-
-    # masked_yolo 관련 설정
-    use_masked_yolo = False
-    is_fixed_mask = True
-    yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
-
-
 
     env.go_home_pose()
     
@@ -69,33 +63,13 @@ def capture_one_episode(env, max_timesteps, dataset_dir, camera_names, camera_co
         for cam_name in camera_names:
             image = ts.observation['images'][cam_name]
             if cam_name in camera_config:
-                # if 'masked_yolo' in camera_config[cam_name]:
-                #     masked_image = np.zeros_like(image)
-                #     if camera_config[cam_name]['masked_yolo']['is_fixed_mask']:
-                #         if is_first_img:     
-                #             results = yolo_model(image)
-
-                #             for result in results:
-                #                 boxes = result.boxes
-                #                 classes = result.names
-                #         if len(boxes) > 0:
-                #             masked_image = mask_outside_boxes(image, boxes, padding=10, show_all=False, index=7)
-                #             is_first_img = False
-                #     else:
-                #         results = yolo_model(image)
-                #         for result in results:
-                #             boxes = result.boxes
-                #             classes = result.names
-                #         masked_image = mask_outside_boxes(image, boxes, padding=10, show_all=False, index=9)
-                #     image = masked_image
-
                 if 'zoom' in camera_config[cam_name]:
-                    zoom_factor = camera_config[cam_name]['zoom']['rate']
+                    size = camera_config[cam_name]['zoom']['size']
                     point = camera_config[cam_name]['zoom']['point']
-                    image = zoom_image(image, zoom_factor, point)
+                    image = zoom_image(image, point, size)
                 if 'resize' in camera_config[cam_name]:
-                    rate = camera_config[cam_name]['resize']['rate']
-                    image = resize_image(image, rate)
+                    rate = camera_config[cam_name]['resize']['size']
+                    image = cv2.resize(image, size)
                     
 
             if ts.observation['images'][cam_name] is not None:
@@ -142,6 +116,8 @@ def main(args):
     max_timesteps = task_config['episode_len']
     camera_names = task_config['camera_names']
     camera_config = task_config['camera_config']
+
+    rospy.init_node("record_episode_node", anonymous=False)
     _env = AlohaEnv(camera_names)
 
     if args['episode_idx'] is not None:

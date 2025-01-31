@@ -93,11 +93,11 @@ def visualize_hdf5_images(hdf5_path, cameras=['camera1', 'camera2']):
 if __name__ == "__main__":
     # 기본값 설정
     dir = "./datasets"
-    work = "pick_tomato_new"
-    episode = "10"
+    work = "grasp_cable"
+    episode = "257"
 
     # HDF5 파일 경로
-    hdf5_path = f"{dir}/{work}/yolo/episode_{episode}.hdf5"
+    hdf5_path = f"{dir}/{work}/original/episode_{episode}.hdf5"
 
     # 함수 호출
     visualize_hdf5_images(hdf5_path)

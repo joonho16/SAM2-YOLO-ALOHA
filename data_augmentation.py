@@ -1,9 +1,7 @@
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-
-import h5py
-import numpy as np
+import os
 
 def augment_data(hdf5_path, new_hdf5_path, darken_factor, cameras):
     with h5py.File(hdf5_path, 'r') as f:
@@ -26,23 +24,31 @@ def augment_data(hdf5_path, new_hdf5_path, darken_factor, cameras):
 
 
 if __name__ == "__main__":
-    data_len = 144
+    # 기본값 설정
+    dir = "./datasets"
+    work = "grasp_cable"
+    
+    # folders = ['original', 'hgdagger']
+    folders = ['original']
+    d_count = 0
+    for folder in folders:
+        data_dir = f"{dir}/{work}/{folder}"
+        data_len = len(os.listdir(data_dir))
 
-    for i in range(data_len):
-        # 기본값 설정
-        dir = "./datasets"
-        work = "pick_tomato"
-        episode = i
+        for i in range(data_len):
+            hdf5_path = f"{data_dir}/episode_{i}.hdf5"
 
-        hdf5_path = f"{dir}/{work}/original/episode_{episode}.hdf5"
+            new_dir = f"{dir}/{work}/aug"
+            os.makedirs(new_dir, exist_ok=True)
+            new_hdf5_path = f"{new_dir}/episode_{d_count}.hdf5"
 
-        # 다크한 이미지로 변환하여 저장
-        new_hdf5_path = f"{dir}/{work}/dark/episode_{episode}.hdf5"
-        augment_data(hdf5_path, new_hdf5_path, 0.7, cameras=['camera1', 'camera2'])
+            # 다크한 이미지로 변환하여 저장
+            augment_data(hdf5_path, new_hdf5_path, 0.7, cameras=['camera1', 'camera2'])
+            d_count += 1
+            print(f"{d_count}번 에피소드가 저장되었습니다.")
 
-        # 밝은 이미지로 변환하여 저장
-        new_hdf5_path = f"{dir}/{work}/light/episode_{episode}.hdf5"
-        augment_data(hdf5_path, new_hdf5_path, 1.3, cameras=['camera1', 'camera2'])
-
-
-        print(f"{episode}번 에피소드가 저장되었습니다.")
+            # 밝은 이미지로 변환하여 저장
+            new_hdf5_path = f"{new_dir}/episode_{d_count}.hdf5"
+            augment_data(hdf5_path, new_hdf5_path, 1.3, cameras=['camera1', 'camera2'])
+            d_count += 1
+            print(f"{d_count}번 에피소드가 저장되었습니다.")

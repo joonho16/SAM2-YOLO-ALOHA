@@ -11,7 +11,8 @@ import glob
 import os
 import sys
 
-from utils import zoom_image, resize_image
+from utils import zoom_image
+
 from constants import TASK_CONFIGS
 
 class ImageSubscriber:
@@ -83,12 +84,12 @@ def main(cam_name, output_dir, task_name):
         if image is not None:
             if cam_name in camera_config:
                 if 'zoom' in camera_config[cam_name]:
-                    zoom_factor = camera_config[cam_name]['zoom']['ratio']
+                    size = camera_config[cam_name]['zoom']['size']
                     point = camera_config[cam_name]['zoom']['point']
-                    image = zoom_image(image, zoom_factor, point)
+                    image = zoom_image(image, point, size)
                 if 'resize' in camera_config[cam_name]:
-                    resize_rate = camera_config[cam_name]['resize']['ratio']
-                    image = resize_image(image, resize_rate)
+                    size = camera_config[cam_name]['resize']['size']
+                    image = cv2.resize(image, size)
 
             # 이미지 크기 조정 후 띄우기
             max_height = 480
@@ -128,6 +129,6 @@ def main(cam_name, output_dir, task_name):
 
 if __name__ == '__main__':
     cam_name = "camera1"
-    output_dir = "yolo/raw_data/gripper2"
+    output_dir = "yolo/raw_data/tomato_data"
     task_name = "pick_tomato"
     main(cam_name, output_dir, task_name)
