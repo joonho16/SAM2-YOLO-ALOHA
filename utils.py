@@ -10,17 +10,26 @@ import numpy as np
 from ultralytics import YOLO
 import cv2
 
+import json
+
+import readline
+from sensor_msgs.msg import CompressedImage
+
+
+
 e = IPython.embed
 yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
 
 
 class EpisodicDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats):
+    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats, task_space, vel_control):
         super(EpisodicDataset).__init__()
         self.episode_ids = episode_ids
         self.dataset_dir = dataset_dir
         self.camera_names = camera_names
         self.norm_stats = norm_stats
+        self.task_space = task_space
+        self.vel_control = vel_control
         self.is_sim = None
         self.__getitem__(0) # initialize self.is_sim
 
@@ -35,24 +44,52 @@ class EpisodicDataset(torch.utils.data.Dataset):
         with h5py.File(dataset_path, 'r') as root:
             # is_sim = root.attrs['sim']
             is_sim = None
-            original_action_shape = root['/action'].shape
+            if self.task_space:
+                if self.vel_control:
+                    original_action_shape = root['/xvel_action'].shape
+                else:
+                    original_action_shape = root['/xaction'].shape
+            else:
+                original_action_shape = root['/action'].shape
             episode_len = original_action_shape[0]
             if sample_full_episode:
                 start_ts = 0
             else:
                 start_ts = np.random.choice(episode_len)
             # get observation at start_ts only
-            qpos = root['/observations/qpos'][start_ts]
+            if self.task_space:
+                if self.vel_control:
+                    # qpos = root['/observations/xvel'][start_ts]
+                    qpos = np.array([0] * 8)
+                else:
+                    qpos = root['/observations/xpos'][start_ts]
+            else:
+                qpos = root['/observations/qpos'][start_ts]
+
             qvel = root['/observations/qvel'][start_ts]
             image_dict = dict()
             for cam_name in self.camera_names:
                 image_dict[cam_name] = root[f'/observations/images/{cam_name}'][start_ts]
             # get all actions after and including start_ts
             if is_sim:
-                action = root['/action'][start_ts:]
+                if self.task_space:
+                    if self.vel_control:
+                        qpos = root['/observations/xvel'][start_ts]
+                    else:
+                        qpos = root['/observations/xpos'][start_ts]
+                else:
+                    qpos = root['/observations/qpos'][start_ts]
                 action_len = episode_len - start_ts
             else:
-                action = root['/action'][max(0, start_ts - 1):] # hack, to make timesteps more aligned
+                if self.task_space:
+                    if self.vel_control:
+                        action = root['/xvel_action'][max(0, start_ts - 1):]
+                    else:
+                        action = root['/xaction'][max(0, start_ts - 1):]
+                else:
+                    action = root['/action'][max(0, start_ts - 1):]
+                # action = root['/xaction'][max(0, start_ts - 1):] if self.task_space else root['/action'][max(0, start_ts - 1):]
+                # hack, to make timesteps more aligned
                 action_len = episode_len - max(0, start_ts - 1) # hack, to make timesteps more aligned
 
         self.is_sim = is_sim
@@ -84,21 +121,28 @@ class EpisodicDataset(torch.utils.data.Dataset):
         return image_data, qpos_data, action_data, is_pad
 
 
-def get_norm_stats(dataset_dir, num_episodes):
+def get_norm_stats(dataset_dir, num_episodes, task_space, vel_control):
     all_qpos_data = []
     all_action_data = []
     # episode 길이 관련 코드 수정
     for episode_idx in range(num_episodes):
         dataset_path = os.path.join(dataset_dir, f'episode_{episode_idx}.hdf5')
         with h5py.File(dataset_path, 'r') as root:
-            qpos = root['/observations/qpos'][()]
-            qvel = root['/observations/qvel'][()]
-            action = root['/action'][()]
+            if task_space:
+                if vel_control:
+                    # qpos = root['/observations/xvel'][()]
+                    qpos = np.zeros_like(root['/observations/xvel'][()])
+                    action = root['/xvel_action'][()]
+                else:
+                    qpos = root['/observations/xpos'][()]
+                    action = root['/xaction'][()]
+            else:
+                qpos = root['/observations/qpos'][()]
+                root['/action'][()]
         all_qpos_data.append(torch.from_numpy(qpos))
         all_action_data.append(torch.from_numpy(action))
     all_qpos_data = torch.stack(all_qpos_data)
     all_action_data = torch.stack(all_action_data)
-    all_action_data = all_action_data
 
     # normalize action data
     action_mean = all_action_data.mean(dim=[0, 1], keepdim=True)
@@ -113,11 +157,13 @@ def get_norm_stats(dataset_dir, num_episodes):
     stats = {"action_mean": action_mean.numpy().squeeze(), "action_std": action_std.numpy().squeeze(),
              "qpos_mean": qpos_mean.numpy().squeeze(), "qpos_std": qpos_std.numpy().squeeze(),
              "example_qpos": qpos}
+    
+    print(stats)
 
     return stats
 
 
-def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val):
+def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, task_space, vel_control):
     print(f'\nData from: {dataset_dir}\n')
     # obtain train test split
     train_ratio = 0.8
@@ -126,11 +172,11 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     val_indices = shuffled_indices[int(train_ratio * num_episodes):]
 
     # obtain normalization stats for qpos and action
-    norm_stats = get_norm_stats(dataset_dir, num_episodes)
+    norm_stats = get_norm_stats(dataset_dir, num_episodes, task_space, vel_control)
 
     # construct dataset and dataloader
-    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats)
-    val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats)
+    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, task_space, vel_control)
+    val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats, task_space, vel_control)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
 
@@ -312,3 +358,77 @@ def mask_outside_boxes(image, boxes_list, padding=0):
 
     return masked_image
 
+
+def input_caching(prompt):
+    cache_file_path = "input_cache.json"
+    if os.path.exists(cache_file_path):
+        with open(cache_file_path, "r") as f:
+            cache = json.load(f)
+    else:
+        cache = {}
+    default = cache.get(prompt, "")
+    def prefill_hook():
+        readline.insert_text(default)  # 기본값 입력
+        readline.redisplay()          # 화면에 표시
+    readline.set_pre_input_hook(prefill_hook)
+
+    answer = input(prompt)
+
+    cache[prompt] = answer
+
+    with open(cache_file_path, "w") as f:
+        json.dump(cache, f, indent=4)
+
+    return answer
+
+
+def qpos_to_xpos(qpos, kn, robot='ur5e'):
+    qpos_only = list(qpos[:-1])
+    if robot == 'ur5e':
+        qpos_only[0], qpos_only[2] = qpos_only[2], qpos_only[0]
+    xpos = kn.forward_kinematics(qpos_only).detach().cpu().numpy()
+    return np.concatenate((xpos, qpos[-1:]))
+
+def xpos_to_qpos(xpos, kn, qseed, robot='ur5e'):
+    xpos_only = list(xpos[:-1])
+    qpos = kn.inverse_kinematics(xpos_only, qseed).detach().cpu().numpy()
+    if robot == 'ur5e':
+        qpos[0], qpos[2] = qpos[2], qpos[0]
+    return np.concatenate((qpos, xpos[-1:]))
+
+
+def ros_image_to_numpy(image_msg):
+    if isinstance(image_msg, CompressedImage):
+        # 압축 이미지 처리
+        np_arr = np.frombuffer(image_msg.data, np.uint8)
+        image_array = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)  # 기본 BGR 형태로 디코딩됨
+        image_array = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)  # RGB로 변환
+        image_array = image_array[:, :, ::-1]  # BGR -> RGB
+        return image_array
+
+    # 일반 Image 메시지 처리
+    encoding_to_dtype = {
+        'rgb8': ('uint8', 3),
+        'bgr8': ('uint8', 3),
+        'mono8': ('uint8', 1),
+        'mono16': ('uint16', 1),
+        'rgba8': ('uint8', 4),
+        'bgra8': ('uint8', 4),
+    }
+
+    if image_msg.encoding not in encoding_to_dtype:
+        raise ValueError(f"Unsupported encoding: {image_msg.encoding}")
+    
+    dtype, channels = encoding_to_dtype[image_msg.encoding]
+    data = np.frombuffer(image_msg.data, dtype=dtype)
+    image_array = data.reshape((image_msg.height, image_msg.width, channels))
+    
+    if image_msg.encoding == 'bgr8':
+        image_array = image_array[:, :, ::-1]  # BGR -> RGB
+    elif image_msg.encoding == 'bgra8':
+        image_array = image_array[:, :, [2, 1, 0, 3]]  # BGRA -> RGBA
+    
+    return image_array
+
+def rescale_val(val, origin_rng, rescaled_rng):
+    return rescaled_rng[0] + (rescaled_rng[1] - rescaled_rng[0]) * ((val - origin_rng[0]) / (origin_rng[1] - origin_rng[0]))

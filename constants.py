@@ -37,16 +37,17 @@ TASK_CONFIGS = {
         'camera_names': ['cam_1', 'cam_2', 'cam_3', 'digit'],
     },
     'grasp_cable':{
-        'dataset_dir': DATA_DIR + '/grasp_cable',
-        'num_episodes': 258,
-        'episode_len': 150,
-        'camera_names': ['camera1', 'camera2'],
+        'dataset_dir': DATA_DIR + '/grasp_cable_v2',
+        'num_episodes': 36,
+        'episode_len': 120,
+        'camera_names': ['camera1', 'camera2', 'camera3'],
         'camera_config': {
             'camera1': {
                 'zoom': {
-                    'point': [300, 80],
-                    'size': (160, 120)
+                    'point': [390, 350],
+                    'size': (200, 150)
                 },
+            },
                 # 'masked_yolo': {
                 #     'model_path': 'yolo/runs/detect/train21/weights/best.pt',
                 #     'classes': {
@@ -64,7 +65,70 @@ TASK_CONFIGS = {
                 #         }
                 #     }
                 # },
+            'camera2': {
+                'resize': {
+                    'size': (200, 150)
+                },
+                # 'masked_yolo': {
+                #     'model_path': 'yolo/runs/detect/train21/weights/best.pt',
+                #     'classes': {
+                #         'cable': {
+                #             'id': 0,
+                #             'is_fixed_mask': False,
+                #             'show_id': 0,
+                #             'keep_last_box': True
+                #         },
+                #         'gripper': {
+                #             'id': 1,
+                #             'is_fixed_mask': False,
+                #             'show_id': -1,
+                #             'keep_last_box': True,
+                #         }
+                #     }
+                # },
             },
+            'camera3': {
+                'zoom': {
+                    'point': [300, 140],
+                    'size': (200, 150)
+                },
+            }
+        },
+        'home_pose': [[-1.7174, -1.23715, -0.84709, -0.43578, 1.14902, -1.4285, 0.087]],
+        # 'end_pose': [[-1.023, -2.528, -0.955, 0.314, 2.057, -1.661, 0]],
+        'end_pose': [[-1.954, -1.108, -1.117, 0.158, 1.472, -1.511, 0.087]],
+        'pose_sleep': 0
+    },
+
+    'home_pose':{
+        'dataset_dir': DATA_DIR + '/home_pose',
+        'num_episodes': 36,
+        'episode_len': 100,
+        'camera_names': ['camera1', 'camera2', 'camera3'],
+        'camera_config': {
+            'camera1': {
+                'zoom': {
+                    'point': [390, 350],
+                    'size': (160, 120)
+                },
+            },
+                # 'masked_yolo': {
+                #     'model_path': 'yolo/runs/detect/train21/weights/best.pt',
+                #     'classes': {
+                #         'cable': {
+                #             'id': 0,
+                #             'is_fixed_mask': False,
+                #             'show_id': 0,
+                #             'keep_last_box': True
+                #         },
+                #         'gripper': {
+                #             'id': 1,
+                #             'is_fixed_mask': False,
+                #             'show_id': 0,
+                #             'keep_last_box': True,
+                #         }
+                #     }
+                # },
             'camera2': {
                 'resize': {
                     'ratio': 4,
@@ -87,54 +151,61 @@ TASK_CONFIGS = {
                 #         }
                 #     }
                 # },
+            },
+            'camera3': {
+                'zoom': {
+                    'point': [260, 140],
+                    'size': (160, 120)
+                },
             }
         },
-        'home_pose': [[-1.954, -1.108, -1.117, 0.158, 1.472, -1.511, 0.087]],
-        # 'end_pose': [[-1.023, -2.528, -0.955, 0.314, 2.057, -1.661, 0]]
+        'home_pose': [[-1.7174, -1.23715, -0.84709, -0.43578, 1.14902, -1.4285, 0.087]],
+        # 'end_pose': [[-1.023, -2.528, -0.955, 0.314, 2.057, -1.661, 0]],
         'end_pose': [[-1.954, -1.108, -1.117, 0.158, 1.472, -1.511, 0.087]],
-        'pose_sleep': 6
+        'pose_sleep': 0
     },
 
     'pick_tomato':{
-        'dataset_dir': DATA_DIR + '/pick_tomato_new',
+        'dataset_dir': DATA_DIR + '/pick_tomato_vel',
         'num_episodes': 45,
-        'episode_len': 150,
-        'camera_names': ['camera1', 'camera2'],
+        'episode_len': 100,
+        'camera_names': ['camera2'],
         'camera_config': {
-            'camera1': {
-                'resize': {
-                    'ratio': 1 / 4,
-                    'size': (320, 240)
-                },
-                'masked_yolo': {
-                    'model_path': 'yolo/runs/detect/train2/weights/best.pt',
-                    'classes': {
-                        'tomato': {
-                            'id': 0,
-                            'is_fixed_mask': True,
-                            'show_id': 0,
-                            'keep_last_box': False
-                        },
-                        'gripper': {
-                            'id': 1,
-                            'is_fixed_mask': False,
-                            'show_id': -1,
-                            'keep_last_box': True,
-                        }
-                    }
-                },
-                'size': (120, 160)
-            },
+            # 'camera1': {
+            #     'resize': {
+            #         'size': (480, 360)
+            #     },
+            #     'size': (120, 160)
+            # },
             'camera2': {
                 'resize': {
-                    'ratio': 4,
                     'size': (160, 120)
                 },
+                # 'masked_yolo': {
+                #     'model_path': 'yolo/runs/detect/train2/weights/best.pt',
+                #     'classes': {
+                #         'tomato': {
+                #             'id': 0,
+                #             'is_fixed_mask': True,
+                #             'show_id': 0,
+                #             'keep_last_box': False
+                #         },
+                #         'gripper': {
+                #             'id': 1,
+                #             'is_fixed_mask': False,
+                #             'show_id': -1,
+                #             'keep_last_box': True,
+                #         }
+                #     }
+                # },
                 'size': (120, 160)
             }
         },
-        'home_pose': [[-2.29, -1.95, -1.66, -0.46, 1.71, -1.62, 0.087]],
-        'end_pose': []
+        'home_pose': [[-1.709, -1.325, -1.396, -0.452, 1.664, -1.539, 0.087]],
+        # 'home_pose': [[-2.29, -1.95, -1.66, -0.46, 1.71, -1.62, 0.087]],
+        'end_pose': [[-1.709, -1.325, -1.396, -0.452, 1.664, -1.539, 0.087]],
+        # 'end_pose': [[-2.29, -1.95, -1.66, -0.46, 1.71, -1.62, 0.087]],
+        'pose_sleep': 3
     },
 }
 
@@ -231,7 +302,7 @@ YOLO_CONFIG = {
         'model_cfg_yaml': 'sam2.1_hiera_l.yaml',
         'epochs': 100
     },
-        'grasp_cable': {
+    'grasp_cable': {
         'class_names': ['cable_head', 'gripper'],
         'raw_data_dir': 'yolo/raw_data/grasp_cable',
         'data_dir': 'yolo/data',

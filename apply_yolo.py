@@ -3,7 +3,7 @@ from ultralytics import YOLO
 # -*- coding: utf-8 -*-
 
 import rospy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import threading
@@ -13,53 +13,26 @@ import sys
 import os
 import time
 
-from utils import zoom_image, fetch_image_with_config
+from utils import zoom_image, fetch_image_with_config, ros_image_to_numpy
 from constants import TASK_CONFIGS
 
-class ImageSubscriber:
 
+class ImageSubscriber:
     def __init__(self, topic_name):
         self.bridge = CvBridge()
         self.cam_name = topic_name
         self.image = None
         self.lock = threading.Lock()
-        self.image_sub = rospy.Subscriber(topic_name, Image, self.callback)
+        self.image_sub = rospy.Subscriber(topic_name, CompressedImage, self.callback)
 
     def callback(self, data):
         try:
-            cv_image = self.ros_image_to_numpy(data)
+            cv_image = ros_image_to_numpy(data)
             with self.lock:
                 self.image = cv_image
         except CvBridgeError as e:
             print(e)
 
-    def ros_image_to_numpy(self, image_msg):
-        # 이미지의 데이터 타입 추출
-        encoding_to_dtype = {
-            'rgb8': ('uint8', 3),
-            'bgr8': ('uint8', 3),
-            'mono8': ('uint8', 1),
-            'mono16': ('uint16', 1),
-            'rgba8': ('uint8', 4),
-            'bgra8': ('uint8', 4),
-        }
-
-        if image_msg.encoding not in encoding_to_dtype:
-            raise ValueError(f"Unsupported encoding: {image_msg.encoding}")
-        
-        dtype, channels = encoding_to_dtype[image_msg.encoding]
-        
-        # NumPy 배열 생성
-        data = np.frombuffer(image_msg.data, dtype=dtype)
-
-        image_array = data.reshape((image_msg.height, image_msg.width, channels))
-        
-        # RGB와 BGR 간 변환
-        if image_msg.encoding in ['rgb8', 'bgr8']:
-            image_array = image_array[:, :, ::-1]  # BGR -> RGB
-        elif image_msg.encoding == ['rgb8', 'bgra8']:
-            image_array = image_array[:, :, [2, 1, 0, 3]]  # BGRA -> RGBA
-        return image_array
 
 def mask_outside_boxes(image, boxes_list, padding=0):
     """
@@ -107,9 +80,11 @@ def hdf5_to_yolo_image(model, width, height, task_name):
             
             data_dict = {
                 '/observations/qpos': f[f'/observations/qpos'],
+                '/observations/xpos': f[f'/observations/xpos'],
                 '/observations/qvel': f[f'/observations/qvel'],
                 '/observations/effort': f[f'/observations/effort'],
                 '/action': f[f'action'],
+                '/xaction': f[f'xaction'],
             }
 
             for im_name in TASK_CONFIGS[task_name]['camera_names']:
@@ -234,7 +209,7 @@ def camera_to_yolo_image(task_name, model, width, height, is_fixed_mask=False):
     rospy.init_node('image_subscriber', anonymous=True)
     subscribers = []
     for cam_name in TASK_CONFIGS[task_name]['camera_names']:
-        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw'))
+        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw/compressed'))
     camera_config = TASK_CONFIGS[task_name]['camera_config']
 
 
@@ -320,9 +295,11 @@ def hdf5_to_yolo_image2(task_name, yolo_config):
             
             data_dict = {
                 '/observations/qpos': f[f'/observations/qpos'],
+                '/observations/xpos': f[f'/observations/xpos'],
                 '/observations/qvel': f[f'/observations/qvel'],
                 '/observations/effort': f[f'/observations/effort'],
                 '/action': f[f'action'],
+                '/xaction': f[f'xaction'],
             }
 
             for im_name in TASK_CONFIGS[task_name]['camera_names']:
@@ -372,7 +349,7 @@ def camera_to_fetched_image(task_name, yolo_config):
     rospy.init_node('image_subscriber', anonymous=True)
     subscribers = []
     for cam_name in TASK_CONFIGS[task_name]['camera_names']:
-        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw'))
+        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw/compressed'))
     camera_config = TASK_CONFIGS[task_name]['camera_config']
 
 
@@ -404,7 +381,7 @@ def camera_to_fetched_image(task_name, yolo_config):
 
 if __name__ == '__main__':
 
-    task_name = 'grasp_cable'
+    task_name = 'pick_tomato'
 
     yolo_config = {
         'model': YOLO('runs/detect/train3/weights/best.pt'),
@@ -416,5 +393,5 @@ if __name__ == '__main__':
     height = 120
     # camera_to_yolo_image2(task_name, model, width, height, is_fixed_mask)
     # hdf5_to_yolo_image(yolo_config['model'], width, height, task_name)
-    # camera_to_fetched_image(task_name, yolo_config)
-    hdf5_to_yolo_image2(task_name, yolo_config)
+    camera_to_fetched_image(task_name, yolo_config)
+    # hdf5_to_yolo_image2(task_name, yolo_config)

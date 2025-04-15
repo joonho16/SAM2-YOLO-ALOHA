@@ -2,7 +2,7 @@ import rospy
 import threading
 import math
 from sensor_msgs.msg import JointState
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 import time
 import dm_env
 import collections
@@ -18,10 +18,12 @@ import actionlib
 from PIL import Image as PILImage
 import numpy as np
 import sys
+import kinematics
+from utils import qpos_to_xpos, xpos_to_qpos, ros_image_to_numpy, rescale_val
 
 
 class AlohaEnv:
-    def __init__(self, camera_names=DEFAULT_CAMERA_NAMES, robot_name="ur5"):
+    def __init__(self, kin_config, camera_names=DEFAULT_CAMERA_NAMES, robot_name="ur5"):
         self.robot_name = robot_name
         self.joint_states = None
         self.camera_names = camera_names
@@ -51,7 +53,9 @@ class AlohaEnv:
             if 'digit' in cam_name:
                 rospy.Subscriber(f"/{cam_name}/image_raw", Image, self.digit_image_raw_cb, callback_args=cam_name)
             else:
-                rospy.Subscriber(f"/{cam_name}/color/image_raw", Image, self.image_raw_cb, callback_args=cam_name)
+                rospy.Subscriber(f"/{cam_name}/color/image_raw/compressed", CompressedImage, self.image_raw_cb, callback_args=cam_name)
+                
+        self.kn = kinematics.Kinematics(kin_config)
 
         time.sleep(0.1)
         # rospy.spin()
@@ -63,8 +67,11 @@ class AlohaEnv:
     
     def gripper_state_cb(self, msg):
         with self.js_mutex:
-            self.gripper_states = msg
-
+            if self.robot_name == 'ur5':
+                self.gripper_states = msg
+                self.gripper_states.position = (rescale_val(msg.position[0], (0.0, 0.786), (0.087, 0.001)),)
+            else:
+                self.gripper_states = msg
 
     def master_joint_state_cb(self, msg):
         with self.js_mutex:
@@ -75,10 +82,7 @@ class AlohaEnv:
             self.master_gripper_states = msg
     
     def image_raw_cb(self, data, cam_name):
-        if self.pyversion == '3.8.10':
-            image = self.bridge.imgmsg_to_cv2(data, desired_encoding='passthrough')
-        else:
-            image = self.ros_image_to_numpy(data)
+        image = ros_image_to_numpy(data)
 
         setattr(self, cam_name, image)
 
@@ -108,6 +112,7 @@ class AlohaEnv:
     def get_observation(self):
         obs = collections.OrderedDict()
         obs['qpos'] = self.get_qpos()
+        obs['xpos'] = self.get_xpos()
         obs['qvel'] = self.get_qvel()
         obs['effort'] = self.get_effort()
         obs['images'] = self.get_images()
@@ -239,6 +244,27 @@ class AlohaEnv:
             return self.joint_states.position
         elif self.robot_name == 'ur5':
             return self.joint_states.position + self.gripper_states.position
+        
+    def get_xpos(self):
+        if self.robot_name == 'om':
+            return self.joint_states.position
+        elif self.robot_name == 'ur5':
+            # qpos = self.joint_states.position
+            # qpos[0], qpos[2] = qpos[2], qpos[0]
+            # xpos_only = self.kn.forward_kinematics(qpos)
+            # xpos_only = xpos_only.cpu().detach().numpy()
+            # ee_pos = np.array(self.gripper_states.position)
+            # xpos = np.concatenate((xpos_only, ee_pos), axis=0)
+            xpos = qpos_to_xpos(self.get_qpos(), self.kn)
+            return xpos
+        
+    def get_xvel(self, last_xpos):
+        if self.robot_name == 'om':
+            return self.joint_states.position
+        elif self.robot_name == 'ur5':
+            xpos = qpos_to_xpos(self.get_qpos(), self.kn)
+            xvel = xpos - last_xpos
+            return xvel
 
     def get_qvel(self):
         if self.robot_name == 'om':
@@ -257,6 +283,24 @@ class AlohaEnv:
             return self.master_joint_states.position
         elif self.robot_name == 'ur5':
             return self.master_joint_states.points[0].positions + (self.master_gripper_states.position,)
+        
+    def get_xaction(self):
+        if self.robot_name == 'om':
+            return self.master_joint_states.position
+        elif self.robot_name == 'ur5':
+            # xaction_only = self.kn.forward_kinematics(self.master_joint_states.points[0].positions).cpu().numpy()
+            # ee_action = np.array(self.master_gripper_states.position)
+            # xaction = np.concatenate((xaction_only, ee_action), axis=0)  # axis=0으로 설정
+            xaction = qpos_to_xpos(self.get_action(), self.kn)
+            return xaction
+        
+    def get_xvel_action(self, last_xaction):
+        if self.robot_name == 'om':
+            return self.master_joint_states.position
+        elif self.robot_name == 'ur5':
+            xaction = qpos_to_xpos(self.get_action(), self.kn)
+            xvel_action = xaction - last_xaction
+            return xvel_action
 
     def get_images(self):
         image_dict = dict()
@@ -316,9 +360,8 @@ class AlohaEnv:
         else:
             goal_gripper_pos = 0.087
             gripper_pos = GripperCmd()
-            initial_gripper_pos = (0.76 - self.gripper_states.position[0]) / 0.76 * goal_gripper_pos
-            current_gripper_pos = initial_gripper_pos
-            gradient = (goal_gripper_pos - initial_gripper_pos) / 20
+            current_gripper_pos = self.gripper_states.position[0]
+            gradient = (goal_gripper_pos - current_gripper_pos) / 20
             while current_gripper_pos < goal_gripper_pos:
                 current_gripper_pos += gradient
                 gripper_pos.position = current_gripper_pos
@@ -365,47 +408,12 @@ class AlohaEnv:
             return self.go_home_pose_ur5(is_training)
         
     
-    def ros_image_to_numpy(self, image_msg):
-        # 이미지의 데이터 타입 추출
-        encoding_to_dtype = {
-            'rgb8': ('uint8', 3),
-            'bgr8': ('uint8', 3),
-            'mono8': ('uint8', 1),
-            'mono16': ('uint16', 1),
-            'rgba8': ('uint8', 4),
-            'bgra8': ('uint8', 4),
-        }
-
-        if image_msg.encoding not in encoding_to_dtype:
-            raise ValueError(f"Unsupported encoding: {image_msg.encoding}")
-        
-        dtype, channels = encoding_to_dtype[image_msg.encoding]
-        
-        # NumPy 배열 생성
-        data = np.frombuffer(image_msg.data, dtype=dtype)
-
-        image_array = data.reshape((image_msg.height, image_msg.width, channels))
-        
-        # RGB와 BGR 간 변환
-        if image_msg.encoding in ['rgb8', 'bgr8']:
-            image_array = image_array[:, :, ::-1]  # BGR -> RGB
-        elif image_msg.encoding == ['rgb8', 'bgra8']:
-            image_array = image_array[:, :, [2, 1, 0, 3]]  # BGRA -> RGBA
-        return image_array
-    
-
     def move_joint(self, rad_pos):
         goal_gripper_pos = rad_pos[6]
         goal_joint_pos = rad_pos[:6]
         gripper_pos = GripperCmd()
-        initial_gripper_pos = (0.76 - self.gripper_states.position[0]) / 0.76 * goal_gripper_pos
-        current_gripper_pos = initial_gripper_pos
-        gradient = (goal_gripper_pos - initial_gripper_pos) / 20
-        while current_gripper_pos < goal_gripper_pos:
-            current_gripper_pos += gradient
-            gripper_pos.position = current_gripper_pos
-            self.gripper_publisher.publish(gripper_pos)
-            
+        gripper_pos.position = goal_gripper_pos
+        self.gripper_publisher.publish(gripper_pos)
         rospy.wait_for_service('mover/move_robot_planning')
         move_robot = rospy.ServiceProxy('mover/move_robot_planning', MoveRobot)
 
@@ -420,7 +428,25 @@ class AlohaEnv:
         response = move_robot(request)
         return response
     
+    # def move_gripper(self, goal_gripper_pos):
+    #     gripper_pos = GripperCmd()
+    #     current_gripper_pos = self.gripper_states.position[0]
+    #     gradient = (goal_gripper_pos - current_gripper_pos) / 20
+    #     while current_gripper_pos < goal_gripper_pos:
+    #         current_gripper_pos += gradient
+    #         gripper_pos.position = current_gripper_pos
+    #         self.gripper_publisher.publish(gripper_pos)
+
+    
+    # def move_direction(self, dir, q_init, kn):
+    #     cur_xpos = self.get_xpos()
+    #     qpos = xpos_to_qpos(xpos, kn, q_init)
+    #     return self.move_step(qpos)
+    
+    
 def make_env(camera_names):
     env = AlohaEnv(camera_names)
     return env
+
+
 

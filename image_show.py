@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import rospy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import threading
@@ -14,7 +14,6 @@ from constants import TASK_CONFIGS
 from ultralytics import YOLO
 from apply_yolo import mask_outside_boxes
 
-yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
 
 class ImageSubscriber:
 
@@ -23,7 +22,7 @@ class ImageSubscriber:
         self.cam_name = topic_name
         self.image = None
         self.lock = threading.Lock()
-        self.image_sub = rospy.Subscriber(topic_name, Image, self.callback)
+        self.image_sub = rospy.Subscriber(topic_name, CompressedImage, self.callback)
 
     def callback(self, data):
         try:
@@ -34,7 +33,15 @@ class ImageSubscriber:
             print(e)
 
     def ros_image_to_numpy(self, image_msg):
-        # 이미지의 데이터 타입 추출
+        if isinstance(image_msg, CompressedImage):
+            # 압축 이미지 처리
+            np_arr = np.frombuffer(image_msg.data, np.uint8)
+            image_array = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)  # 기본 BGR 형태로 디코딩됨
+            image_array = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)  # RGB로 변환
+            image_array = image_array[:, :, ::-1]  # BGR -> RGB
+            return image_array
+
+        # 일반 Image 메시지 처리
         encoding_to_dtype = {
             'rgb8': ('uint8', 3),
             'bgr8': ('uint8', 3),
@@ -48,26 +55,22 @@ class ImageSubscriber:
             raise ValueError(f"Unsupported encoding: {image_msg.encoding}")
         
         dtype, channels = encoding_to_dtype[image_msg.encoding]
-        
-        # NumPy 배열 생성
         data = np.frombuffer(image_msg.data, dtype=dtype)
-
         image_array = data.reshape((image_msg.height, image_msg.width, channels))
         
-        # RGB와 BGR 간 변환
-        if image_msg.encoding in ['rgb8', 'bgr8']:
+        if image_msg.encoding == 'bgr8':
             image_array = image_array[:, :, ::-1]  # BGR -> RGB
-        elif image_msg.encoding == ['rgb8', 'bgra8']:
+        elif image_msg.encoding == 'bgra8':
             image_array = image_array[:, :, [2, 1, 0, 3]]  # BGRA -> RGBA
+        
         return image_array
-
 
 def main():
     rospy.init_node('image_subscriber', anonymous=True)
-    task_name = 'grasp_cable'
+    task_name = 'pick_tomato'
     subscribers = []
     for cam_name in TASK_CONFIGS[task_name]['camera_names']:
-        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw'))
+        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw/compressed'))
     camera_config = TASK_CONFIGS[task_name]['camera_config']
 
 

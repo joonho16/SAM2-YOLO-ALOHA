@@ -65,6 +65,9 @@ def get_args_parser():
     parser.add_argument('--temporal_agg', action='store_true')
     parser.add_argument('--record_episode', action='store_true')
     parser.add_argument('--data_folders', nargs='+', type=str)
+    parser.add_argument('--load_model', action='store', type=str, required=False)
+    parser.add_argument('--task_space', action='store_true')
+    parser.add_argument('--vel_control', action='store_true')
 
     return parser
 

@@ -12,3 +12,6 @@ dm-env
 h5py
 Pillow
 pynput
+ultralytics
+grad_cam
+curobo

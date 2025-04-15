@@ -8,6 +8,10 @@ from torch.autograd import Variable
 from .backbone import build_backbone
 from .transformer import build_transformer, TransformerEncoder, TransformerEncoderLayer
 
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.image import show_cam_on_image, preprocess_image
+import torch.cuda as cuda
+
 import numpy as np
 
 import IPython
@@ -60,7 +64,7 @@ class DETRVAE(nn.Module):
         else:
             # input_dim = 14 + 7 # robot_state + env_state
             self.input_proj_robot_state = nn.Linear(self.state_dim, hidden_dim)
-            self.input_proj_env_state = nn.Linear(7, hidden_dim)
+            self.input_proj_env_state = nn.Linear(self.state_dim, hidden_dim)
             self.pos = torch.nn.Embedding(2, hidden_dim)
             self.backbones = None
 
@@ -75,6 +79,10 @@ class DETRVAE(nn.Module):
         # decoder extra parameters
         self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim) # project latent sample to embedding
         self.additional_pos_embed = nn.Embedding(2, hidden_dim) # learned position embedding for proprio and latent
+
+        self.backbone_features = {}
+        for cam in camera_names:
+            self.backbone_features[cam] = []
 
     def forward(self, qpos, image, env_state, actions=None, is_pad=None):
         """
@@ -134,9 +142,11 @@ class DETRVAE(nn.Module):
                 for cam_id, cam_name in enumerate(self.camera_names):
                     features, pos = self.backbones[0](image[:, cam_id]) # HARDCODED
                     features = features[0] # take the last layer feature
+                    self.backbone_features[cam_name] = features
                     pos = pos[0]
                     all_cam_features.append(self.input_proj(features))
                     all_cam_pos.append(pos)
+                    
             # proprioception features
             proprio_input = self.input_proj_robot_state(qpos)
             # fold camera dimension into width dimension
@@ -151,7 +161,7 @@ class DETRVAE(nn.Module):
         a_hat = self.action_head(hs)
         is_pad_hat = self.is_pad_head(hs)
         return a_hat, is_pad_hat, [mu, logvar]
-
+    
 
 class CNNMLP(nn.Module):
     def __init__(self, backbones, state_dim, camera_names):
@@ -268,7 +278,7 @@ def build(args):
     return model
 
 def build_cnnmlp(args):
-    state_dim = 14 # TODO hardcode
+    state_dim = args.state_dim * 2 # TODO hardcode
 
     # From state
     # backbone = None # from state for now, no need for conv nets

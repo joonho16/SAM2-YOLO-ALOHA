@@ -10,8 +10,10 @@ for episode in range(100):
     with h5py.File(f"{dir}/{work}/episode_{episode}.hdf5", 'r') as f:
         data_dict = {
             '/observations/qpos': f[f'/observations/qpos'],
+            '/observations/xpos': f[f'/observations/xpos'],
             '/observations/qvel': f[f'/observations/qvel'],
             '/observations/effort': f[f'/observations/effort'],
+            '/action': f[f'action'],
             '/action': f[f'action'],
         }
         for cam_name in ['cam_1', 'cam_2', 'cam_3', 'digit']:

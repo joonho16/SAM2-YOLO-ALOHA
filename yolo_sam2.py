@@ -26,7 +26,7 @@ import readline
 from ultralytics import YOLO
 
 
-class YoloViaSam2:
+class YoloSam2:
 
     def __init__(self, task_name, config):
         self.class_names = config['class_names']
@@ -79,14 +79,16 @@ class YoloViaSam2:
             print(f"총 {frame_count}개의 프레임이 {save_dir}에 저장되었습니다.")
 
 
-    def hdf5_to_jpg(self, hdf5_path, save_dir, cam_name, start_point=0):
+    def hdf5_to_jpg(self, hdf5_path, save_dir, cam_name, start_point=0, end_point=None):
         os.makedirs(save_dir, exist_ok=True)
         with h5py.File(hdf5_path, 'r') as f:
             images = f[f"observations/images/{cam_name}"]
 
-            episode_len = len(images)
+            if not end_point:
+                end_point = len(images)
+                
             num = 0
-            for i in range(start_point, episode_len):
+            for i in range(start_point, end_point):
                 file_name = os.path.join(save_dir, f"{num:05d}.jpg")
 
                 success = cv2.imwrite(file_name, images[i])
@@ -123,7 +125,7 @@ class YoloViaSam2:
                 point_groups[group_index].append([x // self.resize_rate, y // self.resize_rate])
                 log()
 
-        if img is None:
+        if image is None:
             print("Error: Unable to load image.")
         else:
             # 창 이름 설정
@@ -174,6 +176,48 @@ class YoloViaSam2:
 
         return point_groups, label_groups, class_ids
     
+    def set_sam2_prompt_from_yolo(self, yolo_model, image, conf, x_pos='middle', y_pos='middle'):
+        results = yolo_model(image, conf=conf)
+        point_groups = []
+        label_groups = []
+        class_ids = []
+        
+        boxes = results[0].boxes
+        xyxy = boxes.xyxy.cpu().numpy()  # (N, 4) 형태의 NumPy 배열로 변환
+        cls = boxes.cls.cpu().numpy()  # (N, 4) 형태의 NumPy 배열로 변환
+            
+
+        # 박스별로 반복하며 박스 영역을 복사
+        for index, box in enumerate(xyxy):
+            
+            x1, y1, x2, y2 = map(int, box[:4])
+            # cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0))
+
+            if x_pos == 'middle':
+                px = (x1 + x2) // 2
+            elif x_pos == 'left':
+                px = x1
+            elif x_pos == 'right':
+                px = x2
+                
+            if y_pos == 'middle':
+                py = (y1 + y2) // 2
+            elif y_pos == 'top':
+                py = y1
+            elif y_pos == 'bottom':
+                py = y2
+                
+            point_group = [[px, py]]
+            label_group = [1]
+            point_groups.append(point_group)
+            label_groups.append(label_group)
+            class_id = int(cls[index])
+            class_ids.append(class_id)
+            
+        # cv2.imshow('Rectangle', image)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        return point_groups, label_groups, class_ids
 
     def save_yolo_labels(self, bboxes, image_width, image_height, output_file, class_id=0):
         with open(output_file, 'w') as file:
@@ -219,9 +263,8 @@ class YoloViaSam2:
 
         return x_min, y_min, x_max, y_max
 
-
-    def sam2_to_bounding_box(self, jpg_dir, label_dir, point_groups, label_groups, class_ids):
-            # Hydra 설정 경로 초기화
+    def get_segmenatation(self, jpg_dir, point_groups, label_groups):
+        # Hydra 설정 경로 초기화
         hydra.core.global_hydra.GlobalHydra.instance().clear()  # 기존 설정 초기화
         hydra.initialize(config_path=self.sam2_config_dir, version_base=None)
 
@@ -229,12 +272,6 @@ class YoloViaSam2:
         predictor = build_sam2_video_predictor(self.model_cfg_yaml, self.checkpoint)
 
         np.random.seed(3)
-
-        frame_names = [
-            p for p in os.listdir(jpg_dir)
-            if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
-        ]
-        frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
 
         inference_state = predictor.init_state(video_path=jpg_dir)
 
@@ -262,6 +299,17 @@ class YoloViaSam2:
                 out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
                 for i, out_obj_id in enumerate(out_obj_ids)
             }
+            
+        return video_segments
+
+    def sam2_to_bounding_box(self, jpg_dir, label_dir, point_groups, label_groups, class_ids):
+        frame_names = [
+            p for p in os.listdir(jpg_dir)
+            if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
+        ]
+        frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
+        
+        video_segments = self.get_segmenatation(jpg_dir, point_groups, label_groups)
             
         # 비디오로 세그먼트
         vis_frame_stride = len(frame_names) // 5
@@ -301,6 +349,7 @@ class YoloViaSam2:
             self.save_yolo_labels(boxes, width, height, output_file)
 
         cv2.destroyAllWindows()
+
 
     def get_mask(self, mask, class_id):
         color_pallete = [
@@ -450,6 +499,7 @@ class YoloViaSam2:
         with open(f'{self.yaml_dir}/{self.task_name}.yaml', 'r') as f :
             lines = yaml.safe_load(f)
             print(lines)
+            
 
 def input_caching(prompt):
     cache_file_path = "input_cache.json"
@@ -474,11 +524,13 @@ def input_caching(prompt):
     return answer
 
 
+
+
 if __name__ == '__main__':
 
     task_name = input_caching('Enter Task Name: ')
     config = YOLO_CONFIG[task_name]
-    yolo_via_sam2 = YoloViaSam2(task_name, config)
+    yolo_via_sam2 = YoloSam2(task_name, config)
 
     folder_names = input_caching('Enter JPG Data Folder Name (Space for Multi-Input): ')
 

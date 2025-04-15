@@ -11,9 +11,10 @@ import time
 from matplotlib.animation import FuncAnimation
 
 from constants import DT
+from constants import TASK_CONFIGS
 from policy import ACTPolicy, CNNMLPPolicy
 from utils import load_data, zoom_image, fetch_image_with_config # data functions
-from utils import sample_box_pose, sample_insertion_pose # robot functions
+from utils import sample_box_pose, sample_insertion_pose, qpos_to_xpos, xpos_to_qpos # robot functions
 from utils import compute_dict_mean, set_seed, detach_dict # helper functions
 from visualize_episodes import save_videos
 
@@ -21,15 +22,22 @@ from ultralytics import YOLO
 from apply_yolo import mask_outside_boxes
 
 import shutil
+import random
 import h5py
 
 import cv2
 
-
 from TCPController import TCPController
 
-yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
+from pynput import keyboard
 
+import kinematics
+from curobo.types.base import TensorDeviceType
+import sys
+
+
+yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
+show_grad_cam = False
 
 def main(args):
     set_seed(1)
@@ -46,7 +54,9 @@ def main(args):
     num_epochs = args['num_epochs']
     record_episode = args['record_episode']
     data_folders = args['data_folders']
-
+    load_model = args['load_model']
+    task_space = args['task_space']
+    vel_control = args['vel_control']
 
     # get task parameters
     is_sim = task_name[:4] == 'sim_'
@@ -66,7 +76,7 @@ def main(args):
     pose_sleep = task_config['pose_sleep']
 
     # fixed parameters
-    state_dim = 7
+    state_dim = 8 if task_space else 7
     lr_backbone = 1e-5
     backbone = 'resnet18' if args['backbone'] is None else args['backbone']
     if policy_class == 'ACT':
@@ -110,15 +120,30 @@ def main(args):
         'end_pose': end_pose,
         'home_pose': home_pose,
         'pose_sleep': pose_sleep,
-        'data_folders': data_folders
+        'data_folders': data_folders,
+        'load_model': load_model,
+        'dataset_dir': dataset_dir,
+        'task_space': task_space,
+        'vel_control': vel_control
     }
-
+    
+    kin_config = {
+        'robot_file': 'ur5e.yml',
+        'world_file': "collision_base.yml",
+        'rotation_threshold': 0.01,
+        'position_threshold': 0.01,
+        'num_seeds': 1,
+        'self_collision_check': False,
+        'self_collision_opt': False,
+        'tensor_args': TensorDeviceType(),
+        'use_cuda_graph': True
+    }
 
     if is_eval:
         ckpt_names = [f'policy_best.ckpt']
         results = []
         for ckpt_name in ckpt_names:
-            success_rate, avg_return = eval_bc(config, ckpt_name, record_episode=record_episode)
+            success_rate, avg_return = eval_bc(config, ckpt_name, kin_config, record_episode=record_episode)
             results.append([ckpt_name, success_rate, avg_return])
 
         for ckpt_name, success_rate, avg_return in results:
@@ -128,15 +153,17 @@ def main(args):
 
     start_num = 0
 
-    for folder in config['data_folders']:
-        origin_dir = f"{dataset_dir}/{folder}"
-        if os.path.exists(origin_dir):
-            file_count = move_data_to_tmp(f"{origin_dir}", f"{dataset_dir}/tmp", start_num)
-            start_num += file_count
-        else:
-            print(f"{origin_dir} 폴더가 존재하지 하지 않습니다.")
+    for i, folder in enumerate(config['data_folders']):
+        if i % 2 == 0:
+            sampling = int(config['data_folders'][i + 1])
+            origin_dir = f"{dataset_dir}/{folder}"
+            if os.path.exists(origin_dir):
+                file_count = move_data_to_tmp(f"{origin_dir}", f"{dataset_dir}/tmp", start_num, sampling)
+                start_num += file_count
+            else:
+                print(f"{origin_dir} 폴더가 존재하지 하지 않습니다.")
 
-    train_dataloader, val_dataloader, stats, _ = load_data(f"{dataset_dir}/tmp", start_num, camera_names, batch_size_train, batch_size_val)
+    train_dataloader, val_dataloader, stats, _ = load_data(f"{dataset_dir}/tmp", start_num, camera_names, batch_size_train, batch_size_val, task_space, vel_control)
 
 
 
@@ -212,11 +239,13 @@ def get_image(ts, camera_names, camera_config, yolo_config, memories):
         if cam_name in camera_config:
             image, memories[index] = fetch_image_with_config(image, camera_config[cam_name], memories[index], yolo_config)
 
+
         raw_images.append(image)
         curr_image = rearrange(image, 'h w c -> c h w')
         curr_images.append(curr_image)
 
     if len(raw_images):
+
             
         # 이미지 크기 맞추기 (최대 크기로 맞추거나 다른 방식으로 조정)
         max_height = 480
@@ -226,9 +255,9 @@ def get_image(ts, camera_names, camera_config, yolo_config, memories):
         # 이미지를 가로로 나열
         combined_image = cv2.hconcat(resized_images)
 
-        # 단일 창에 표시
-        cv2.imshow("Combined Image", combined_image)
-        cv2.waitKey(1)
+        # # 단일 창에 표시
+        # cv2.imshow("Combined Image", combined_image)
+        # cv2.waitKey(1)
     else:
         print("No images to display.")
 
@@ -238,7 +267,8 @@ def get_image(ts, camera_names, camera_config, yolo_config, memories):
 
     return curr_image, memories
 
-def eval_bc(config, ckpt_name, record_episode=True):
+def eval_bc(config, ckpt_name, kin_config, record_episode=True):
+
     set_seed(1000)
     ckpt_dir = config['ckpt_dir']
     state_dim = config['state_dim']
@@ -249,20 +279,25 @@ def eval_bc(config, ckpt_name, record_episode=True):
     camera_names = config['camera_names']
     max_timesteps = config['episode_len']
     task_name = config['task_name']
+    dataset_dir = config['dataset_dir']
     temporal_agg = config['temporal_agg']
     onscreen_cam = 'angle'
     home_pose = config['home_pose']
     end_pose = config['end_pose']
     pose_sleep = config['pose_sleep']
+    task_space = config['task_space']
+    vel_control = config['vel_control']
 
-    dataset_dir = f'datasets/{task_name}/original'
+    dataset_dir = f'{dataset_dir}/original'
 
     yolo_config = {
         'model': YOLO('runs/detect/train3/weights/best.pt'),
         'conf': 0.7,
         'padding': 3
     }
-
+    
+    kn = kinematics.Kinematics(kin_config)
+    
     # load policy and stats
     ckpt_path = os.path.join(ckpt_dir, ckpt_name)
     policy = make_policy(policy_class, policy_config)
@@ -278,17 +313,18 @@ def eval_bc(config, ckpt_name, record_episode=True):
     pre_process = lambda s_qpos: (s_qpos - stats['qpos_mean']) / stats['qpos_std']
     post_process = lambda a: a * stats['action_std'] + stats['action_mean']
 
-    tcp_ctr = TCPController()
 
     # load environment
-    if real_robot:
-        # from aloha_scripts.robot_utils import move_grippers # requires aloha
-        from env import AlohaEnv
-        import rospy
+    # if real_robot:
+    # from aloha_scripts.robot_utils import move_grippers # requires aloha
+    from env import AlohaEnv
+    import rospy
 
-        rospy.init_node("imitate_episode_node", anonymous=False)
-        env = AlohaEnv(camera_names)
-        env_max_reward = 0
+    rospy.init_node("imitate_episode_node", anonymous=False)
+    env = AlohaEnv(kin_config, camera_names)
+    env_max_reward = 0
+
+    tcp_ctr = TCPController(env.gripper_publisher, lambda: env.gripper_states)
 
     # else:
         # from sim_env import make_sim_env
@@ -296,12 +332,13 @@ def eval_bc(config, ckpt_name, record_episode=True):
         # env_max_reward = env.task.max_reward
 
     query_frequency = policy_config['num_queries']
+    num_queries = 0
     if temporal_agg:
         query_frequency = 1
         num_queries = policy_config['num_queries']
 
     data_timesteps = max_timesteps
-    max_timesteps = int(max_timesteps * 1.5) # may increase for real-world tasks
+    max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
 
     num_rollouts = 100
     episode_returns = []
@@ -309,7 +346,6 @@ def eval_bc(config, ckpt_name, record_episode=True):
     for rollout_id in range(num_rollouts):
         rollout_id += 0
 
-        ### set task
         # if 'sim_transfer_cube' in task_name:
         #     BOX_POSE[0] = sample_box_pose() # used in sim reset
         # elif 'sim_insertion' in task_name:
@@ -324,104 +360,217 @@ def eval_bc(config, ckpt_name, record_episode=True):
         ts = env.reset()
         timesteps = [ts]
         actions = []
+        xactions = []
         
         ### evaluation loop
         if temporal_agg:
-            all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
+            all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda() 
 
-        qpos_history = torch.zeros((1, max_timesteps, state_dim)).cuda()
-        image_list = [] # for visualization
-        qpos_list = []
-        target_qpos_list = []
         rewards = []
 
         if onscreen_render:
             plt.ion()  # interactive mode on
             fig, ax = plt.subplots()
 
-        with torch.inference_mode():
-            print('move!')
-            memories = [None] * len(camera_names)
+
+        print('move!')
+        memories = [None] * len(camera_names)
+        
+        
+        # Space를 눌렀을 때, timestep 초기화
+        restart_state = [True]
+        
+        def on_press(key):
+            if key == keyboard.Key.esc:
+                if tcp_ctr.controlling:
+                    restart_state[0] = True
+            if key == keyboard.Key.ctrl:
+                tcp_ctr.controlling = True
+            if key == keyboard.Key.space:
+                tcp_ctr.controlling = False
+            if key == keyboard.Key.end:
+                print('end')
+
+
+        def on_release(key):
+            pass
+        listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+        listener.start()
+
+        while restart_state[0]:
+            tcp_ctr.controlling = True
+            ts = env.reset()
+            timesteps = [ts]
+            actions = []
+            
+            ### evaluation loop
+            if temporal_agg:
+                all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
+
+            rewards = []
+            restart_state[0] = False
+            key_pressed = False
+            # q_init = [TASK_CONFIGS[task_name]['home_pose'][0][:-1], TASK_CONFIGS[task_name]['home_pose'][0][:-1]]
+            q_init = list(TASK_CONFIGS[task_name]['home_pose'][0][:-1])
+            print("Start")
             for t in tqdm(range(max_timesteps)):
                 # try:
                 start = time.time()
                 ### process previous timestep to get qpos and image_list
                 timesteps.append(ts)
                 obs = ts.observation
+                    
+                cur_qpos = np.array(obs['qpos'])
+                cur_xpos = np.array(obs['xpos'])
+                cur_qvel = np.array(obs['qvel'])
+                cur_xvel = np.array([0] * state_dim)
 
-                if onscreen_render:
-                    ax.clear()  # 이전 이미지 지우기
-                    ax.imshow(ts.observation['images']['cam_3'])
-                    ax.set_title(f'Timestep: {t}')
-                    ax.axis('off')
-                    plt.draw()
-                    plt.pause(0.1)
-
-                if 'images' in obs:
-                    image_list.append(obs['images'])
+                if task_space:
+                    if vel_control:
+                        # if t == 0:
+                        #     pos_numpy = np.array([0] * state_dim)
+                        # else:
+                        #     pos_numpy = np.array(obs['xpos']) - np.array(last_xpos)
+                        # last_xpos = obs['xpos']
+                        robot_input_raw = cur_xvel
+                    else:
+                        robot_input_raw = cur_xpos
                 else:
-                    image_list.append({'main': obs['image']})
+                    robot_input_raw = cur_qpos
                 
-                qpos_numpy = np.array(obs['qpos'])
-                qpos = pre_process(qpos_numpy)
-                qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
-                qpos_history[:, t] = qpos
+                # pos_numpy = np.array(obs['xpos']) if task_space else np.array(obs['qpos'])
+                
+                robot_input = pre_process(robot_input_raw)
+                robot_input = torch.from_numpy(robot_input).float().cuda().unsqueeze(0)
 
                 curr_image, memories = get_image(ts, camera_names, config['camera_config'], yolo_config, memories)
 
-                if not tcp_ctr.controlling:
-                    ### query policy
-                    if config['policy_class'] == "ACT":
-                        if t % query_frequency == 0:
-                            all_actions = policy(qpos, curr_image)
-                        if temporal_agg:
-                            all_time_actions[[t], t:t+num_queries] = all_actions
-                            actions_for_curr_step = all_time_actions[:, t]
-                            actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
-                            actions_for_curr_step = actions_for_curr_step[actions_populated]
-                            k = 0.01
-                            exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
-                            exp_weights = exp_weights / exp_weights.sum()
-                            exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
-                            raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
+                # print(f"tcp: {tcp_ctr.controlling}")
+                # print(f"key_pressed: {key_pressed}")
+                
+                with torch.inference_mode():
+                    if not tcp_ctr.controlling:
+
+                        ### query policy
+                        if config['policy_class'] == "ACT":
+                            if t % query_frequency == 0:
+                                all_actions = policy(robot_input, curr_image)
+                            if temporal_agg:
+                                all_time_actions[[t], t:t+num_queries] = all_actions
+                                actions_for_curr_step = all_time_actions[:, t]
+                                actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
+                                actions_for_curr_step = actions_for_curr_step[actions_populated]
+                                k = 0.01
+                                exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
+                                exp_weights = exp_weights / exp_weights.sum()
+                                exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
+                                raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
+                                # raw_action = all_actions[:, t % query_frequency]
+                            else:
+                                raw_action = all_actions[:, t % query_frequency]
+                        elif config['policy_class'] == "CNNMLP":
+                            raw_action = policy(robot_input, curr_image)
                         else:
-                            raw_action = all_actions[:, t % query_frequency]
-                    elif config['policy_class'] == "CNNMLP":
-                        raw_action = policy(qpos, curr_image)
-                    else:
-                        raise NotImplementedError
+                            raise NotImplementedError
+                
+                if not tcp_ctr.controlling:
+                    if show_grad_cam:
+                        policy.show_grad_cam_heatmap(curr_image, 3)
                     ### post-process actions
                     raw_action = raw_action.squeeze(0).cpu().numpy()
                     action = post_process(raw_action)
-                    target_qpos = action
+
+                    # target_qpos = action
+                    # qpos_only = action[:-1]
+                    if task_space:
+                        # qpos is xpos
+                        # print(f"q_init: {q_init[1]}")
+                        # qpos_only = kn.inverse_kinematics(qpos_only, q_init[1]).detach().cpu().numpy()
+                        # qpos_only[0], qpos_only[2] = qpos_only[2], qpos_only[0]
+                        # target_qpos = np.concatenate((qpos_only, target_qpos[-1:]))
+
+                        # target_xpos = action
+                        if vel_control:
+                            target_xpos = cur_xpos + action
+                            print(f"act:{action}")
+                            print(f"target_xpos:{target_xpos}")
+                        else:
+                            target_xpos = action
+                        q_init[0], q_init[2] = q_init[0], q_init[2]
+                        target_qpos = xpos_to_qpos(target_xpos, kn, q_init)
+                        print(f"target_qpos:{target_qpos}")
+                    else:
+                        # target_xpos = kn.forward_kinematics(qpos_only).detach().cpu().numpy()
+                        # target_xpos = np.concatenate((target_xpos, target_qpos[-1:]))
+                        target_qpos = action
+                        target_xpos = qpos_to_xpos(target_qpos, kn)
                     # print(f"Get Action Time: {time.time() - start}")
                     ### step the environment
-                    ts = env.move_step(target_qpos)
+                    
+                    # print(f"current_qpos: {current_qpos}")
+                    # print(f"current_xpos: {current_xpos}")
+                    # print(f"target_qpos: {target_qpos}")
+                    # print(f"target_xpos: {target_xpos}")
+                    
+                    while True:
+                        qdiff_vec = target_qpos[:-1] - cur_qpos[:-1]
+                        qdiff = np.linalg.norm(qdiff_vec)
+                        # xdiff = np.linalg.norm(current_xpos[:-1] - target_xpos[:-1])
+                        # print(f"qdiff: {qdiff}")
+                        # print(f"xdiff: {xdiff}")
+                        
+                        if qdiff < 1:
+                            q_init = list(cur_qpos[:-1])
+                            # print("it moved")
+                            ts = env.move_step(target_qpos)
+                            break
+                        else:
+                            target_qpos = np.concatenate((cur_qpos[:-1] + qdiff_vec * 0.5, target_qpos[-1:]))
+                            # print(target_qpos)
                 else:
-                    tcp_ctr.decide_direction()
+                    # 정지
+                    while True:
+                        key_pressed = tcp_ctr.decide_direction()
+                        if (not tcp_ctr.controlling) or key_pressed:
+                            break 
+                        
                     all_time_actions[:, :, :] = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim])
                     ts = env.record_step()
+                    target_qpos = ts.observation['qpos']
+                    target_xpos = ts.observation['xpos']
+
+                    # # 그리퍼 캘리브레이션
+                    # gripper_pos = target_qpos[-1]
+                    # gripper_old_rng = (0.0, 0.786)
+                    # gripper_new_rng = (0.087, 0.001)
+                    # gripper_pos = gripper_new_rng[0] + (gripper_new_rng[1] - gripper_new_rng[0]) * ((gripper_pos - gripper_old_rng[0]) / (gripper_old_rng[1] - gripper_old_rng[0]))
+                    # target_qpos[-1] = gripper_pos
+                    # target_xpos[-1] = gripper_pos
+
                 ### for visualization
-                qpos_list.append(qpos_numpy)
-                target_qpos_list.append(target_qpos)
                 rewards.append(ts.reward)
                 # print(f"Get Move Time: {time.time() - start}")
 
                 actions.append(target_qpos)
+                xactions.append(target_xpos)
+                
+                if restart_state[0]:
+                    print("Restart")
+                    break
 
                 # except Exception as e:
                 #     print("Error: %s" % e)
                 #     return False
-                
-            plt.close()
+            
+        plt.close()
         if real_robot:
             # move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
             pass
 
-        if len(end_pose) > 0:
-            for pos in end_pose:
-                env.move_joint(pos)
-                time.sleep(pose_sleep)
+        # if len(end_pose) > 0:
+        #     for pos in end_pose:
+        #         env.move_joint(pos)
+        #         time.sleep(pose_sleep)
 
             
         rewards = np.array(rewards)
@@ -434,7 +583,7 @@ def eval_bc(config, ckpt_name, record_episode=True):
         if record_episode:
             d = input("Will you save this data? (Input 'y' for yes)")
             if len(d) > 0 and d[-1] == 'y':
-                record_eval_episode(timesteps, actions, camera_names, config['camera_config'], data_timesteps, state_dim, dataset_dir, yolo_config)
+                record_eval_episode(timesteps, actions, xactions, camera_names, config['camera_config'], data_timesteps, state_dim, dataset_dir, yolo_config, kin_config)
             else:
                 d = input("Will you record new data? (Input 'y' for yes)")
                 if d == 'y':
@@ -462,7 +611,7 @@ def eval_bc(config, ckpt_name, record_episode=True):
     return success_rate, avg_return
 
 
-def record_eval_episode(timesteps, actions, camera_names, camera_config, max_timesteps, joint_len, dataset_dir, yolo_config):
+def record_eval_episode(timesteps, actions, xactions, camera_names, camera_config, max_timesteps, joint_len, dataset_dir, yolo_config, kin_config):
     timesteps.pop(len(timesteps) - 1)
 
     image_size = (120, 160)
@@ -470,9 +619,13 @@ def record_eval_episode(timesteps, actions, camera_names, camera_config, max_tim
     while len(timesteps) >= max_timesteps:
         data_dict = {
             '/observations/qpos': [],
+            '/observations/xpos': [],
+            '/observations/xvel': [],
             '/observations/qvel': [],
             '/observations/effort': [],
             '/action': [],
+            '/xaction': [],
+            '/xvel_action': [],
         }
         for cam_name in camera_names:
             data_dict[f'/observations/images/{cam_name}'] = []
@@ -482,10 +635,28 @@ def record_eval_episode(timesteps, actions, camera_names, camera_config, max_tim
         for j in range(max_timesteps):
             ts = timesteps.pop(0)
             action = actions.pop(0)
+            xaction = xactions.pop(0)
+            if j == 0:
+                last_xpos = ts.observation['xpos']
+                last_xaction = xaction
+            
             data_dict['/observations/qpos'].append(ts.observation['qpos'])
             data_dict['/observations/qvel'].append(ts.observation['qvel'])
+            xpos = ts.observation['xpos']
+            data_dict['/observations/xpos'].append(xpos)
             data_dict['/observations/effort'].append(ts.observation['effort'])
             data_dict['/action'].append(action)
+            data_dict['/xaction'].append(xaction)
+            
+            xvel = last_xpos - xpos
+            data_dict['/observations/xvel'].append(xvel)
+            
+            xvel_action = last_xaction - xaction
+            data_dict['/xvel_action'].append(xvel_action)
+            
+            last_xpos = xpos
+            last_xaction = xaction
+            
 
             for cam_name in camera_names:
                 image = ts.observation['images'][cam_name]
@@ -511,10 +682,15 @@ def record_eval_episode(timesteps, actions, camera_names, camera_config, max_tim
                                         chunks=(1, image_size[0], image_size[1], 3), )
                 # compression='gzip',compression_opts=2,)
                 # compression=32001, compression_opts=(0, 0, 0, 0, 9, 1, 1), shuffle=False)
-            _ = obs.create_dataset('qpos', (max_timesteps, joint_len))
-            _ = obs.create_dataset('qvel', (max_timesteps, joint_len))
-            _ = obs.create_dataset('effort', (max_timesteps, joint_len))
-            _ = root.create_dataset('action', (max_timesteps, joint_len))
+            _ = obs.create_dataset('qpos', (max_timesteps, 7))
+            _ = obs.create_dataset('xpos', (max_timesteps, 8))
+            _ = obs.create_dataset('xvel', (max_timesteps, 8))
+            _ = obs.create_dataset('qvel', (max_timesteps, 7))
+            _ = obs.create_dataset('effort', (max_timesteps, 7))
+            _ = root.create_dataset('action', (max_timesteps, 7))
+            _ = root.create_dataset('xaction', (max_timesteps, 8))
+            _ = root.create_dataset('xvel_action', (max_timesteps, 8))
+            
 
             for name, array in data_dict.items():
                 root[name][...] = array
@@ -526,7 +702,7 @@ def record_new_episode(task_name):
     import subprocess
 
     cmd1 = ['python', 'dynamixel_publisher.py']
-    cmd2 = ["bash", "auto_record.sh", task_name, '1']
+    cmd2 = ["bash", "auto_record.sh", task_name, '2']
 
     p1 = subprocess.Popen(cmd1)
     p2 = subprocess.Popen(cmd2)
@@ -551,10 +727,18 @@ def train_bc(train_dataloader, val_dataloader, config):
     seed = config['seed']
     policy_class = config['policy_class']
     policy_config = config['policy_config']
+    load_model = config['load_model']
 
     set_seed(seed)
 
     policy = make_policy(policy_class, policy_config)
+    
+    # 모델 불러와서 fine-tuning
+    if load_model != None:
+        model_ckpt_name = 'policy_best.ckpt'
+        model_path = os.path.join(load_model, model_ckpt_name)
+        loading_status = policy.load_state_dict(torch.load(model_path))
+        print(loading_status)
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
 
@@ -621,22 +805,51 @@ def train_bc(train_dataloader, val_dataloader, config):
 
     return best_ckpt_info
 
-def move_data_to_tmp(origin_dir, tmp_dir, data_len):
-    # dark 디렉토리 안의 파일을 부모 디렉토리로 복사
-    file_count = 0
+
+import os
+import shutil
+import random
+
+def move_data_to_tmp(origin_dir, tmp_dir, data_len, sampling):
+    # 대상 디렉토리가 없으면 생성
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
-    for i, file_name in enumerate(os.listdir(origin_dir)):  # dark 디렉토리 내 파일 목록 가져오기
-        file_path = os.path.join(origin_dir, file_name)  # 파일 전체 경로
-        if os.path.isfile(file_path):  # 파일인지 확인
-            file_count += 1
-            new_file_name = f"episode_{data_len + i}.hdf5"  # 파일 이름에 ~ 추가
-            new_file_path = os.path.join(tmp_dir, new_file_name)  # 부모 디렉토리로 복사 경로 설정
-            
-            shutil.copy(file_path, new_file_path)  # 파일 복사
-            print(f"{origin_dir}: {file_name} → {new_file_name} 로 복사 완료.")
+    # origin_dir 내의 파일 목록 (파일만 선택)
+    file_list = [f for f in os.listdir(origin_dir) if os.path.isfile(os.path.join(origin_dir, f))]
+    n = len(file_list)
     
+    # sampling이 -1이면 모든 파일 복사
+    if sampling == -1:
+        selected_files = file_list
+    # sampling이 파일 개수 이하이면 중복 없이 샘플링
+    elif sampling <= n:
+        selected_files = random.sample(file_list, sampling)
+    else:
+        # sampling 값이 파일 개수보다 크면 중복 허용
+        # 각 파일이 몇 번까지 복사될 수 있는지 계산:
+        # 예를 들어, n < sampling <= 2*n이면 각 파일은 최대 2번,
+        # 2*n < sampling <= 3*n이면 최대 3번 등
+        max_repeat = (sampling - 1) // n + 1
+        
+        # 각 파일을 max_repeat번씩 복사해서 확장된 리스트 생성
+        extended_list = []
+        for file in file_list:
+            extended_list.extend([file] * max_repeat)
+        
+        # 확장된 리스트에서 sampling 개수만큼 랜덤 샘플링 (중복 가능)
+        selected_files = random.sample(extended_list, sampling)
+    
+    file_count = 0
+    for i, file_name in enumerate(selected_files):
+        file_path = os.path.join(origin_dir, file_name)  # 원본 파일 경로
+        new_file_name = f"episode_{data_len + i}.hdf5"     # 새로운 파일 이름 생성
+        new_file_path = os.path.join(tmp_dir, new_file_name) # 대상 경로
+        
+        shutil.copy(file_path, new_file_path)  # 파일 복사
+        print(f"{origin_dir}: {file_name} → {new_file_name} 로 복사 완료.")
+        file_count += 1
+
     return file_count
 
 
@@ -671,7 +884,10 @@ if __name__ == '__main__':
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
     parser.add_argument('--record_episode', action='store_true')
-    parser.add_argument('--data_folders', nargs='+', type=str)
+    parser.add_argument('--data_folders', nargs='+', type=str, required=False)
+    parser.add_argument('--load_model', action='store', type=str, required=False)
+    parser.add_argument('--task_space', action='store_true')
+    parser.add_argument('--vel_control', action='store_true')
     
     main(vars(parser.parse_args()))
 
