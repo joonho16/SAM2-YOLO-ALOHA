@@ -11,15 +11,16 @@ import time
 from matplotlib.animation import FuncAnimation
 
 from constants import DT
-from constants import TASK_CONFIGS
+from constants import TASK_CONFIGS, USE_YOLO
 from policy import ACTPolicy, CNNMLPPolicy
-from utils import load_data, zoom_image, fetch_image_with_config # data functions
+from utils import load_data, fetch_image_with_config # data functions
 from utils import sample_box_pose, sample_insertion_pose, qpos_to_xpos, xpos_to_qpos # robot functions
 from utils import compute_dict_mean, set_seed, detach_dict # helper functions
 from visualize_episodes import save_videos
 
-from ultralytics import YOLO
-from apply_yolo import mask_outside_boxes
+
+show_grad_cam = False
+
 
 import shutil
 import random
@@ -31,13 +32,8 @@ from TCPController import TCPController
 
 from pynput import keyboard
 
-import kinematics
-from curobo.types.base import TensorDeviceType
 import sys
 
-
-yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
-show_grad_cam = False
 
 def main(args):
     set_seed(1)
@@ -126,24 +122,30 @@ def main(args):
         'task_space': task_space,
         'vel_control': vel_control
     }
-    
-    kin_config = {
-        'robot_file': 'ur5e.yml',
-        'world_file': "collision_base.yml",
-        'rotation_threshold': 0.01,
-        'position_threshold': 0.01,
-        'num_seeds': 1,
-        'self_collision_check': False,
-        'self_collision_opt': False,
-        'tensor_args': TensorDeviceType(),
-        'use_cuda_graph': True
-    }
+
+    kn = None
+    if task_space:
+        import kinematics
+        from curobo.types.base import TensorDeviceType
+        
+        kin_config = {
+            'robot_file': 'ur5e.yml',
+            'world_file': "collision_base.yml",
+            'rotation_threshold': 0.01,
+            'position_threshold': 0.01,
+            'num_seeds': 1,
+            'self_collision_check': False,
+            'self_collision_opt': False,
+            'tensor_args': TensorDeviceType(),
+            'use_cuda_graph': True
+        }
+        kn = kinematics.Kinematics(kin_config)
 
     if is_eval:
         ckpt_names = [f'policy_best.ckpt']
         results = []
         for ckpt_name in ckpt_names:
-            success_rate, avg_return = eval_bc(config, ckpt_name, kin_config, record_episode=record_episode)
+            success_rate, avg_return = eval_bc(config, ckpt_name, kn=kn, record_episode=record_episode)
             results.append([ckpt_name, success_rate, avg_return])
 
         for ckpt_name, success_rate, avg_return in results:
@@ -229,7 +231,7 @@ def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
         plt.savefig(plot_path)
     print(f'Saved plots to {ckpt_dir}')
 
-def get_image(ts, camera_names, camera_config, yolo_config, memories):
+def get_image(ts, camera_names, camera_config, memories, yolo_config=None):
     curr_images = []
     raw_images = []
 
@@ -267,7 +269,7 @@ def get_image(ts, camera_names, camera_config, yolo_config, memories):
 
     return curr_image, memories
 
-def eval_bc(config, ckpt_name, kin_config, record_episode=True):
+def eval_bc(config, ckpt_name, record_episode=True, kn=None):
 
     set_seed(1000)
     ckpt_dir = config['ckpt_dir']
@@ -290,13 +292,15 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
 
     dataset_dir = f'{dataset_dir}/original'
 
-    yolo_config = {
-        'model': YOLO('runs/detect/train3/weights/best.pt'),
-        'conf': 0.7,
-        'padding': 3
-    }
-    
-    kn = kinematics.Kinematics(kin_config)
+    yolo_config = None
+    if USE_YOLO:
+        from ultralytics import YOLO
+
+        yolo_config = {
+            'model': YOLO('runs/detect/train3/weights/best.pt'),
+            'conf': 0.7,
+            'padding': 3
+        }
     
     # load policy and stats
     ckpt_path = os.path.join(ckpt_dir, ckpt_name)
@@ -321,11 +325,16 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
     import rospy
 
     rospy.init_node("imitate_episode_node", anonymous=False)
-    env = AlohaEnv(kin_config, camera_names)
+    env = AlohaEnv(camera_names, robot_name='yaskawa')
     env_max_reward = 0
 
-    tcp_ctr = TCPController(env.gripper_publisher, lambda: env.gripper_states)
+    if env.robot_name == 'ur5':
+        tcp_ctr = TCPController(env.gripper_publisher, lambda: env.gripper_states)
+    else:
+        from types import SimpleNamespace
 
+        tcp_ctr = SimpleNamespace()
+        setattr(tcp_ctr, 'controlling', False)
     # else:
         # from sim_env import make_sim_env
         # env = make_sim_env(task_name)
@@ -338,7 +347,7 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
         num_queries = policy_config['num_queries']
 
     data_timesteps = max_timesteps
-    max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
+    max_timesteps = int(max_timesteps * 1.3) # may increase for real-world tasks
 
     num_rollouts = 100
     episode_returns = []
@@ -398,7 +407,7 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
         listener.start()
 
         while restart_state[0]:
-            tcp_ctr.controlling = True
+            tcp_ctr.controlling = False
             ts = env.reset()
             timesteps = [ts]
             actions = []
@@ -438,15 +447,10 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
                 else:
                     robot_input_raw = cur_qpos
                 
-                # pos_numpy = np.array(obs['xpos']) if task_space else np.array(obs['qpos'])
-                
                 robot_input = pre_process(robot_input_raw)
                 robot_input = torch.from_numpy(robot_input).float().cuda().unsqueeze(0)
 
                 curr_image, memories = get_image(ts, camera_names, config['camera_config'], yolo_config, memories)
-
-                # print(f"tcp: {tcp_ctr.controlling}")
-                # print(f"key_pressed: {key_pressed}")
                 
                 with torch.inference_mode():
                     if not tcp_ctr.controlling:
@@ -480,16 +484,7 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
                     raw_action = raw_action.squeeze(0).cpu().numpy()
                     action = post_process(raw_action)
 
-                    # target_qpos = action
-                    # qpos_only = action[:-1]
                     if task_space:
-                        # qpos is xpos
-                        # print(f"q_init: {q_init[1]}")
-                        # qpos_only = kn.inverse_kinematics(qpos_only, q_init[1]).detach().cpu().numpy()
-                        # qpos_only[0], qpos_only[2] = qpos_only[2], qpos_only[0]
-                        # target_qpos = np.concatenate((qpos_only, target_qpos[-1:]))
-
-                        # target_xpos = action
                         if vel_control:
                             target_xpos = cur_xpos + action
                             print(f"act:{action}")
@@ -500,33 +495,28 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
                         target_qpos = xpos_to_qpos(target_xpos, kn, q_init)
                         print(f"target_qpos:{target_qpos}")
                     else:
-                        # target_xpos = kn.forward_kinematics(qpos_only).detach().cpu().numpy()
-                        # target_xpos = np.concatenate((target_xpos, target_qpos[-1:]))
                         target_qpos = action
                         target_xpos = qpos_to_xpos(target_qpos, kn)
                     # print(f"Get Action Time: {time.time() - start}")
                     ### step the environment
                     
-                    # print(f"current_qpos: {current_qpos}")
-                    # print(f"current_xpos: {current_xpos}")
-                    # print(f"target_qpos: {target_qpos}")
-                    # print(f"target_xpos: {target_xpos}")
+                    print(target_qpos)
+                    ts = env.move_step(target_qpos)
                     
-                    while True:
-                        qdiff_vec = target_qpos[:-1] - cur_qpos[:-1]
-                        qdiff = np.linalg.norm(qdiff_vec)
-                        # xdiff = np.linalg.norm(current_xpos[:-1] - target_xpos[:-1])
-                        # print(f"qdiff: {qdiff}")
-                        # print(f"xdiff: {xdiff}")
+                    # while True:
+                    #     qdiff_vec = target_qpos[:-1] - cur_qpos[:-1]
+                    #     qdiff = np.linalg.norm(qdiff_vec)
+                    #     # xdiff = np.linalg.norm(current_xpos[:-1] - target_xpos[:-1])
                         
-                        if qdiff < 1:
-                            q_init = list(cur_qpos[:-1])
-                            # print("it moved")
-                            ts = env.move_step(target_qpos)
-                            break
-                        else:
-                            target_qpos = np.concatenate((cur_qpos[:-1] + qdiff_vec * 0.5, target_qpos[-1:]))
-                            # print(target_qpos)
+                    #     if qdiff < 5:
+                    #         q_init = list(cur_qpos[:-1])
+                    #         # print("it moved")
+                    #         print(target_qpos)
+                    #         ts = env.move_step(target_qpos)
+                    #         break
+                    #     else:
+                    #         target_qpos = np.concatenate((cur_qpos[:-1] + qdiff_vec * 0.5, target_qpos[-1:]))
+                    #         # print(target_qpos)
                 else:
                     # 정지
                     while True:
@@ -583,7 +573,7 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
         if record_episode:
             d = input("Will you save this data? (Input 'y' for yes)")
             if len(d) > 0 and d[-1] == 'y':
-                record_eval_episode(timesteps, actions, xactions, camera_names, config['camera_config'], data_timesteps, state_dim, dataset_dir, yolo_config, kin_config)
+                record_eval_episode(timesteps, actions, xactions, camera_names, config['camera_config'], data_timesteps, state_dim, dataset_dir, yolo_config)
             else:
                 d = input("Will you record new data? (Input 'y' for yes)")
                 if d == 'y':
@@ -611,7 +601,7 @@ def eval_bc(config, ckpt_name, kin_config, record_episode=True):
     return success_rate, avg_return
 
 
-def record_eval_episode(timesteps, actions, xactions, camera_names, camera_config, max_timesteps, joint_len, dataset_dir, yolo_config, kin_config):
+def record_eval_episode(timesteps, actions, xactions, camera_names, camera_config, max_timesteps, joint_len, dataset_dir, yolo_config=None):
     timesteps.pop(len(timesteps) - 1)
 
     image_size = (120, 160)

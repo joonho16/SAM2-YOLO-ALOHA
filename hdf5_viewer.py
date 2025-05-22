@@ -9,7 +9,10 @@ from constants import TASK_CONFIGS
 def visualize_hdf5_images(hdf5_path, cameras=['camera1', 'camera2', 'camera3'], rgb2bgr=False):
     with h5py.File(hdf5_path, 'r') as f:
         images = []
-        
+
+        actions = f[f"action"][:]
+        qpos_data = f["observations/qpos"][:]
+
         for im_name in cameras:
             images.append(f[f"observations/images/{im_name}"])
 
@@ -32,18 +35,18 @@ def visualize_hdf5_images(hdf5_path, cameras=['camera1', 'camera2', 'camera3'], 
 
             # 단일 창에 표시
             cv2.imshow("Combined Image", combined_image)
-            if cv2.waitKey(10) & 0xFF == ord('q'):
+            if cv2.waitKey(100) & 0xFF == ord('q'):
                 quit()
 
 
 if __name__ == "__main__":
     # 기본값 설정
     dir = "./datasets"
-    task_name = "pick_tomato"
+    task_name = "grasp_cable_yaskawa"
     dataset_dir = TASK_CONFIGS[task_name]['dataset_dir']
     camera_names = TASK_CONFIGS[task_name]['camera_names']
     folder = "original"
-    episode = "6"
+    episode = "12"
     rgb2bgr = True
 
     # HDF5 파일 경로

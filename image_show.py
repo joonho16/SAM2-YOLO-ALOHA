@@ -67,7 +67,7 @@ class ImageSubscriber:
 
 def main():
     rospy.init_node('image_subscriber', anonymous=True)
-    task_name = 'pick_tomato'
+    task_name = 'grasp_cable_yaskawa'
     subscribers = []
     for cam_name in TASK_CONFIGS[task_name]['camera_names']:
         subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw/compressed'))

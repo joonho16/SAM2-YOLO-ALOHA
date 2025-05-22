@@ -12,18 +12,22 @@ import cv2
 from ultralytics import YOLO
 from apply_yolo import mask_outside_boxes
 
-from utils import zoom_image, qpos_to_xpos
+from utils import zoom_image, qpos_to_xpos, fetch_image_with_config
 
-import kinematics
-from curobo.types.base import TensorDeviceType
+def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True):
 
-def capture_one_episode(env, max_timesteps, dataset_dir, camera_names, camera_config, dataset_name, kn, overwrite=True):
+    dataset_dir = f"{task_config['dataset_dir']}/original"
+    max_timesteps = task_config['episode_len']
+    camera_names = task_config['camera_names']
+    camera_config = task_config['camera_config']
+    home_pose = task_config['home_pose']
+    end_pose = task_config['end_pose']
 
-    # env.go_home_pose()
+    env.go_home_pose(home_pose[0])
     
     print(f'Dataset name: {dataset_name}')
 
-    joint_len = len(JOINT_NAMES['ur5']) + 1
+    joint_len = 7
 
     # saving dataset
     if not os.path.isdir(dataset_dir):
@@ -41,6 +45,9 @@ def capture_one_episode(env, max_timesteps, dataset_dir, camera_names, camera_co
         actions.append(action)
         ts = env.record_step()
         timesteps.append(ts)
+        time.sleep(0.1)
+
+    env.go_home_pose(end_pose[0])
 
     data_dict = {
         '/observations/qpos': [],
@@ -57,55 +64,47 @@ def capture_one_episode(env, max_timesteps, dataset_dir, camera_names, camera_co
 
     timesteps.pop(len(timesteps) - 1)
 
-    is_first_img = True
     step = 0
     while timesteps:
         ts = timesteps.pop(0)
-        action = actions.pop(0)
-        
-        if j == 0:
-            last_xpos = ts.observation['xpos']
-            last_xaction = xaction
+        action = actions.pop(0) 
         
         data_dict['/observations/qpos'].append(ts.observation['qpos'])
         data_dict['/observations/qvel'].append(ts.observation['qvel'])
         data_dict['/observations/effort'].append(ts.observation['effort'])
-        xpos = qpos_to_xpos(ts.observation['qpos'], kn)
-        data_dict['/observations/xpos'].append(xpos)
         data_dict['/action'].append(action)
-        xaction = qpos_to_xpos(action, kn)
-        data_dict['/xaction'].append(xaction)
+
+        if kn is not None:
+            if step == 0:
+                last_xpos = ts.observation['xpos']
+                last_xaction = qpos_to_xpos(action, kn)
+            xpos = qpos_to_xpos(ts.observation['qpos'], kn)
+            data_dict['/observations/xpos'].append(xpos)
+            xaction = qpos_to_xpos(action, kn)
+            data_dict['/xaction'].append(xaction)
         
-        xvel = last_xpos - xpos
-        data_dict['/observations/xvel'].append(xvel)
+            xvel = last_xpos - xpos
+            data_dict['/observations/xvel'].append(xvel)
         
-        xvel_action = last_xaction - xaction
-        data_dict['/xvel_action'].append(xvel_action)
+            xvel_action = last_xaction - xaction
+            data_dict['/xvel_action'].append(xvel_action)
         
-        last_xpos = xpos
-        last_xaction = xaction
-        
-        # # xpos = kn.forward_kinematics(ts.observation['qpos'][:-1]).detach().cpu().numpy()
-        # # xpos = np.concatenate((xpos, ts.observation['qpos'][-1:]))
-        # # xaction = kn.forward_kinematics(action[:-1]).detach().cpu().numpy()
-        # # xaction = np.concatenate((xaction, action[-1:]))
-        
-        
-        
+            last_xpos = xpos
+
+            last_xaction = xaction
+        else:
+            data_dict['/observations/xpos'].append([0] * 8)
+            data_dict['/xaction'].append([0] * 8)
+            data_dict['/observations/xvel'].append([0] * 8)
+            data_dict['/xvel_action'].append([0] * 8)
+
 
         for cam_name in camera_names:
             image = ts.observation['images'][cam_name]
-            if cam_name in camera_config:
-                if 'zoom' in camera_config[cam_name]:
-                    size = camera_config[cam_name]['zoom']['size']
-                    point = camera_config[cam_name]['zoom']['point']
-                    image = zoom_image(image, point, size)
-                if 'resize' in camera_config[cam_name]:
-                    rate = camera_config[cam_name]['resize']['size']
-                    image = cv2.resize(image, size)
-                    
 
-            if ts.observation['images'][cam_name] is not None:
+            if image is not None:
+                if cam_name in camera_config:
+                    image, _ = fetch_image_with_config(image, camera_config[cam_name])
                 data_dict[f'/observations/images/{cam_name}'].append(image)
             else:
                 print("error")
@@ -115,7 +114,7 @@ def capture_one_episode(env, max_timesteps, dataset_dir, camera_names, camera_co
     
     # HDF5
     t0 = time.time()
-    image_size = (120, 160)
+    image_size = (150, 200)
     with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024**2*2) as root:
         root.attrs['sim'] = False
         obs = root.create_group('observations')
@@ -151,35 +150,44 @@ def get_auto_index(dataset_dir, dataset_name_prefix = '', data_suffix = 'hdf5'):
 
 def main(args):
     task_config = TASK_CONFIGS[args['task']]
-    dataset_dir = f"{task_config['dataset_dir']}/dummy" 
-    max_timesteps = task_config['episode_len']
     camera_names = task_config['camera_names']
-    camera_config = task_config['camera_config']
-    kin_config = {
-        'robot_file': 'ur5e.yml',
-        'world_file': "collision_base.yml",
-        'rotation_threshold': 0.1,
-        'position_threshold': 0.01,
-        'num_seeds': 1,
-        'self_collision_check': True,
-        'self_collision_opt': False,
-        'tensor_args': TensorDeviceType(),
-        'use_cuda_graph': True
-    }
+    dataset_dir = f"{task_config['dataset_dir']}/original"
 
     rospy.init_node("record_episode_node", anonymous=False)
-    _env = AlohaEnv(kin_config, camera_names)
+
+    
+    task_space = False
+    kn = None
+
+    if task_space:
+        import kinematics
+        from curobo.types.base import TensorDeviceType
+
+        kin_config = {
+            'robot_file': 'ur5e.yml',
+            'world_file': "collision_base.yml",
+            'rotation_threshold': 0.1,
+            'position_threshold': 0.01,
+            'num_seeds': 1,
+            'self_collision_check': True,
+            'self_collision_opt': False,
+            'tensor_args': TensorDeviceType(),
+            'use_cuda_graph': True
+        }
+
+        kn = kinematics.Kinematics(kin_config)
+
+    env = AlohaEnv(camera_names, robot_name='yaskawa', kn=kn)
 
     if args['episode_idx'] is not None:
         episode_idx = args['episode_idx']
     else:
         episode_idx = get_auto_index(dataset_dir)
+        
     dataset_name = f'episode_{episode_idx}'
+
     
-    tensor_args = TensorDeviceType()
-    kn = kinematics.Kinematics(kin_config)
-    
-    capture_one_episode(_env, max_timesteps, dataset_dir, camera_names, camera_config, dataset_name, kn)
+    capture_one_episode(env, task_config, dataset_name, kn)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -138,7 +138,7 @@ def get_norm_stats(dataset_dir, num_episodes, task_space, vel_control):
                     action = root['/xaction'][()]
             else:
                 qpos = root['/observations/qpos'][()]
-                root['/action'][()]
+                action = root['/action'][()]
         all_qpos_data.append(torch.from_numpy(qpos))
         all_action_data.append(torch.from_numpy(action))
     all_qpos_data = torch.stack(all_qpos_data)

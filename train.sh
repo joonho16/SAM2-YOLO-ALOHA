@@ -1,8 +1,7 @@
 python3 ./imitate_episodes.py \
---task_name pick_tomato \
---ckpt_dir ./ckpt/pick_tomato2_only_image \
---policy_class ACT --kl_weight 10 --chunk_size 30 --hidden_dim 512 --batch_size 25 --dim_feedforward 3200 --backbone resnet18 --task_space \
---task_space --vel_control \
+--task_name grasp_cable_yaskawa \
+--ckpt_dir ./ckpt/grasp_cable_yaskawa \
+--policy_class ACT --kl_weight 10 --chunk_size 15 --hidden_dim 512 --batch_size 25 --dim_feedforward 3200 --backbone resnet18 \
 --num_epochs 1000 --lr 1e-5 --data_folders original -1  \
 --seed 0
 

@@ -99,72 +99,28 @@ TASK_CONFIGS = {
         'end_pose': [[-1.954, -1.108, -1.117, 0.158, 1.472, -1.511, 0.087]],
         'pose_sleep': 0
     },
-
-    'home_pose':{
-        'dataset_dir': DATA_DIR + '/home_pose',
+    'grasp_cable_yaskawa':{
+        'dataset_dir': DATA_DIR + '/grasp_cable_yaskawa',
         'num_episodes': 36,
-        'episode_len': 100,
-        'camera_names': ['camera1', 'camera2', 'camera3'],
+        'episode_len': 120,
+        'camera_names': ['lg_camera1', 'lg_camera2'],
         'camera_config': {
-            'camera1': {
-                'zoom': {
-                    'point': [390, 350],
-                    'size': (160, 120)
-                },
-            },
-                # 'masked_yolo': {
-                #     'model_path': 'yolo/runs/detect/train21/weights/best.pt',
-                #     'classes': {
-                #         'cable': {
-                #             'id': 0,
-                #             'is_fixed_mask': False,
-                #             'show_id': 0,
-                #             'keep_last_box': True
-                #         },
-                #         'gripper': {
-                #             'id': 1,
-                #             'is_fixed_mask': False,
-                #             'show_id': 0,
-                #             'keep_last_box': True,
-                #         }
-                #     }
-                # },
-            'camera2': {
+            'lg_camera1': {
                 'resize': {
-                    'ratio': 4,
-                    'size': (160, 120)
+                    'size': (200, 150)
                 },
-                # 'masked_yolo': {
-                #     'model_path': 'yolo/runs/detect/train21/weights/best.pt',
-                #     'classes': {
-                #         'cable': {
-                #             'id': 0,
-                #             'is_fixed_mask': False,
-                #             'show_id': 0,
-                #             'keep_last_box': True
-                #         },
-                #         'gripper': {
-                #             'id': 1,
-                #             'is_fixed_mask': False,
-                #             'show_id': -1,
-                #             'keep_last_box': True,
-                #         }
-                #     }
-                # },
             },
-            'camera3': {
+            'lg_camera2': {
                 'zoom': {
-                    'point': [260, 140],
-                    'size': (160, 120)
+                    'point': [340, 350],
+                    'size': (200, 150)
                 },
-            }
+            },
         },
-        'home_pose': [[-1.7174, -1.23715, -0.84709, -0.43578, 1.14902, -1.4285, 0.087]],
-        # 'end_pose': [[-1.023, -2.528, -0.955, 0.314, 2.057, -1.661, 0]],
-        'end_pose': [[-1.954, -1.108, -1.117, 0.158, 1.472, -1.511, 0.087]],
+        'home_pose': [[0,0,0,0,0,-1.57, 0.087]],
+        'end_pose': [[0,0,0,0,0,-1.57, 0.087]],
         'pose_sleep': 0
     },
-
     'pick_tomato':{
         'dataset_dir': DATA_DIR + '/pick_tomato_vel',
         'num_episodes': 45,
@@ -226,6 +182,7 @@ TOPIC_NAME = {
 
 JOINT_NAMES = {
     'om': ['joint1', 'joint2', 'joint3', 'joint4'],
+    'yaskawa': ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6'],
     'ur5': ["ur5e_elbow_joint", "ur5e_shoulder_lift_joint", "ur5e_shoulder_pan_joint", "ur5e_wrist_1_joint", "ur5e_wrist_2_joint", "ur5e_wrist_3_joint"]
 }
 
@@ -288,6 +245,8 @@ JOINT_LIMIT = {
         },
     }
 }
+
+USE_YOLO = False
 
 YOLO_CONFIG = {
     'pick_tomato': {

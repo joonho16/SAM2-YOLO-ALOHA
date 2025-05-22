@@ -10,6 +10,7 @@ from cv_bridge import CvBridge
 from constants import DT, DEFAULT_CAMERA_NAMES, JOINT_LIMIT, TOPIC_NAME, JOINT_NAMES, TOOL_NAMES
 from open_manipulator_msgs.srv import SetJointPositionRequest, SetJointPosition
 from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
+from robotiq_2f_gripper_msgs.msg import CommandRobotiqGripperAction, CommandRobotiqGripperGoal, CommandRobotiqGripperActionFeedback, CommandRobotiqGripperActionGoal
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from robotiq_85_msgs.msg import GripperCmd
@@ -18,12 +19,11 @@ import actionlib
 from PIL import Image as PILImage
 import numpy as np
 import sys
-import kinematics
 from utils import qpos_to_xpos, xpos_to_qpos, ros_image_to_numpy, rescale_val
 
 
 class AlohaEnv:
-    def __init__(self, kin_config, camera_names=DEFAULT_CAMERA_NAMES, robot_name="ur5"):
+    def __init__(self, camera_names=DEFAULT_CAMERA_NAMES, robot_name="ur5", kn=None):
         self.robot_name = robot_name
         self.joint_states = None
         self.camera_names = camera_names
@@ -44,18 +44,26 @@ class AlohaEnv:
             self.move_robot = actionlib.SimpleActionClient('/ur5e/ur5e_scaled_pos_joint_traj_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
             self.move_robot.wait_for_server()
             self.gripper_publisher = rospy.Publisher('gripper/cmd', GripperCmd, queue_size=1)
+        elif robot_name == 'yaskawa':
+            rospy.Subscriber('/command_robotiq_action/feedback', CommandRobotiqGripperActionFeedback, self.gripper_state_cb)
+            rospy.Subscriber('/command_robotiq_action/goal', CommandRobotiqGripperActionGoal, self.master_gripper_state_cb)
+            rospy.Subscriber("yaskawa/joint_states", JointState, self.joint_state_cb)
+            rospy.Subscriber("yaskawa/joint_states_cmd", JointState, self.master_joint_state_cb)
+            self.move_robot_pub = rospy.Publisher("yaskawa/joint_states_cmd", JointState, queue_size=10)
+            self.gripper_client = actionlib.SimpleActionClient('/command_robotiq_action', CommandRobotiqGripperAction)
 
         elif robot_name == 'om':
             rospy.Subscriber("/joint_states", JointState, self.joint_state_cb)
             rospy.Subscriber("/master_joint_states", JointState, self.master_joint_state_cb)
 
         for cam_name in camera_names:
+            setattr(self, cam_name, None)
             if 'digit' in cam_name:
                 rospy.Subscriber(f"/{cam_name}/image_raw", Image, self.digit_image_raw_cb, callback_args=cam_name)
             else:
                 rospy.Subscriber(f"/{cam_name}/color/image_raw/compressed", CompressedImage, self.image_raw_cb, callback_args=cam_name)
                 
-        self.kn = kinematics.Kinematics(kin_config)
+        self.kn = kn
 
         time.sleep(0.1)
         # rospy.spin()
@@ -70,6 +78,8 @@ class AlohaEnv:
             if self.robot_name == 'ur5':
                 self.gripper_states = msg
                 self.gripper_states.position = (rescale_val(msg.position[0], (0.0, 0.786), (0.087, 0.001)),)
+            elif self.robot_name == 'yaskawa':
+                self.gripper_states = msg.feedback
             else:
                 self.gripper_states = msg
 
@@ -79,7 +89,10 @@ class AlohaEnv:
 
     def master_gripper_state_cb(self, msg):
         with self.js_mutex:
-            self.master_gripper_states = msg
+            if self.robot_name == 'yaskawa':
+                self.master_gripper_states = msg.goal
+            else:
+                self.master_gripper_states = msg
     
     def image_raw_cb(self, data, cam_name):
         image = ros_image_to_numpy(data)
@@ -213,50 +226,65 @@ class AlohaEnv:
             gripper_pos = GripperCmd()
             gripper_pos.position = action[-1]
             self.gripper_publisher.publish(gripper_pos)
-            # self.move_robot.wait_for_result()
-            # result = self.move_robot.get_result()
 
-            # if result.error_code == 0:
-            # rospy.loginfo("Success: Trajectory executed successfully.")
             return dm_env.TimeStep(
                 step_type=dm_env.StepType.MID,
                 reward=self.get_reward(),
                 discount=None,
                 observation=self.get_observation()
             )
-            # else:
-            #     rospy.logwarn(f"Failed: {result.error_string}")
-            #     exit()
 
         except rospy.ROSException as e:
             rospy.logerr("Action call failed: %s", e)
             return False
+        
+    def move_step_yaskawa(self, action):
+        js = JointState()
+        js.position = action[:6]
+        self.move_robot_pub.publish(js)
+        self.move_separated_gripper(action[6])
 
+
+    def move_xstep(self, xaction):
+        qseed = self.get_qpos()[:-1]
+        qpos = xpos_to_qpos(xaction, self.kn, qseed)
+        qdiff_vec = qpos[:-1] - qseed
+        qdiff = np.linalg.norm(qdiff_vec)
+        if qdiff < 1: 
+            self.move_step(qpos)
+        else:
+            rospy.logerr("X step is too big!")
         
     def move_step(self, action):
         if self.robot_name == 'om':
-            return self.move_step_om(action)
+            self.move_step_om(action)
         elif self.robot_name == 'ur5':
-            return self.move_step_ur5(action)
+            self.move_step_ur5(action)
+        elif self.robot_name == 'yaskawa':
+            self.move_step_yaskawa(action)
+        return dm_env.TimeStep(
+            step_type=dm_env.StepType.MID,
+            reward=self.get_reward(),
+            discount=None,
+            observation=self.get_observation()
+        )
 
     def get_qpos(self):
         if self.robot_name == 'om':
             return self.joint_states.position
         elif self.robot_name == 'ur5':
             return self.joint_states.position + self.gripper_states.position
+        elif self.robot_name == 'yaskawa':
+            return self.joint_states.position + (self.gripper_states.position,)
         
     def get_xpos(self):
-        if self.robot_name == 'om':
+        if self.robot_name == 'om': 
             return self.joint_states.position
         elif self.robot_name == 'ur5':
-            # qpos = self.joint_states.position
-            # qpos[0], qpos[2] = qpos[2], qpos[0]
-            # xpos_only = self.kn.forward_kinematics(qpos)
-            # xpos_only = xpos_only.cpu().detach().numpy()
-            # ee_pos = np.array(self.gripper_states.position)
-            # xpos = np.concatenate((xpos_only, ee_pos), axis=0)
             xpos = qpos_to_xpos(self.get_qpos(), self.kn)
             return xpos
+        elif self.robot_name == 'yaskawa':
+            return [0, 0, 0, 0, 0, 0, 0, 0]
         
     def get_xvel(self, last_xpos):
         if self.robot_name == 'om':
@@ -265,17 +293,23 @@ class AlohaEnv:
             xpos = qpos_to_xpos(self.get_qpos(), self.kn)
             xvel = xpos - last_xpos
             return xvel
+        elif self.robot_name == 'yaskawa':
+            return [0, 0, 0, 0, 0, 0, 0, 0]
 
     def get_qvel(self):
         if self.robot_name == 'om':
             return self.joint_states.velocity
         elif self.robot_name == 'ur5':
             return self.joint_states.velocity + self.gripper_states.velocity
+        elif self.robot_name == 'yaskawa':
+            return self.joint_states.velocity + (0,)
     
     def get_effort(self):
         if self.robot_name == 'om':
             return self.joint_states.effort
         elif self.robot_name == 'ur5':
+            return self.joint_states.effort + (0,)
+        elif self.robot_name == 'yaskawa':
             return self.joint_states.effort + (0,)
     
     def get_action(self):
@@ -283,16 +317,17 @@ class AlohaEnv:
             return self.master_joint_states.position
         elif self.robot_name == 'ur5':
             return self.master_joint_states.points[0].positions + (self.master_gripper_states.position,)
+        elif self.robot_name == 'yaskawa':
+            return self.master_joint_states.position + (self.master_gripper_states.position,)
         
     def get_xaction(self):
         if self.robot_name == 'om':
             return self.master_joint_states.position
         elif self.robot_name == 'ur5':
-            # xaction_only = self.kn.forward_kinematics(self.master_joint_states.points[0].positions).cpu().numpy()
-            # ee_action = np.array(self.master_gripper_states.position)
-            # xaction = np.concatenate((xaction_only, ee_action), axis=0)  # axis=0으로 설정
             xaction = qpos_to_xpos(self.get_action(), self.kn)
             return xaction
+        elif self.robot_name == 'yaskawa':
+            return [0, 0, 0, 0, 0, 0, 0, 0]
         
     def get_xvel_action(self, last_xaction):
         if self.robot_name == 'om':
@@ -301,6 +336,8 @@ class AlohaEnv:
             xaction = qpos_to_xpos(self.get_action(), self.kn)
             xvel_action = xaction - last_xaction
             return xvel_action
+        elif self.robot_name == 'yaskawa':
+            return [0, 0, 0, 0, 0, 0, 0, 0]
 
     def get_images(self):
         image_dict = dict()
@@ -308,107 +345,94 @@ class AlohaEnv:
             image_dict[cam_name] = getattr(self, f'{cam_name}')
         return image_dict
     
-    def go_home_pose_om(self, is_training=True):
-        if(is_training):
-            rospy.wait_for_service('goal_master_joint_space_path')
-        else:
-            rospy.wait_for_service('goal_joint_space_path')
-            rospy.wait_for_service('goal_tool_control')
+    def go_home_pose_om(self, pose):
+        rospy.wait_for_service('goal_joint_space_path')
+        rospy.wait_for_service('goal_tool_control')
         try:
+            srv_request1 = SetJointPositionRequest()
+            srv_request2 = SetJointPositionRequest()
+            goal_joint_space_path = rospy.ServiceProxy("goal_joint_space_path", SetJointPosition)
+            goal_tool_control = rospy.ServiceProxy("goal_tool_control", SetJointPosition)
+            srv_request1.path_time = 2.0
+            srv_request1.joint_position.joint_name = ['joint1', 'joint2', 'joint3', 'joint4']
+            srv_request1.joint_position.position = pose
 
-            if(is_training):
-                srv_request = SetJointPositionRequest()
-                goal_joint_space_path = rospy.ServiceProxy("goal_master_joint_space_path", SetJointPosition)
-                srv_request.path_time = 2.0
-                srv_request.joint_position.joint_name = ['joint1', 'joint2', 'joint3', 'joint4', 'gripper']
-                srv_request.joint_position.position = [0.0, -1.05, 0.35, 0.70, -0.01]
-                response = goal_joint_space_path(srv_request)
-                return response.is_planned  
-            else: 
-                srv_request1 = SetJointPositionRequest()
-                srv_request2 = SetJointPositionRequest()
-                goal_joint_space_path = rospy.ServiceProxy("goal_joint_space_path", SetJointPosition)
-                goal_tool_control = rospy.ServiceProxy("goal_tool_control", SetJointPosition)
-                srv_request1.path_time = 2.0
-                srv_request1.joint_position.joint_name = ['joint1', 'joint2', 'joint3', 'joint4']
-                srv_request1.joint_position.position = [0.0, -1.05, 0.35, 0.70]
+            srv_request2.joint_position.joint_name = ['gripper']
+            srv_request2.joint_position.position = [-0.01]
+            srv_request2.path_time = 1.5
+        
+            response1 = goal_joint_space_path(srv_request1)
+            response2 = goal_tool_control(srv_request2)
 
-                srv_request2.joint_position.joint_name = ['gripper']
-                srv_request2.joint_position.position = [-0.01]
-                srv_request2.path_time = 1.5
-            
-                response1 = goal_joint_space_path(srv_request1)
-                response2 = goal_tool_control(srv_request2)
-
-                if response1.is_planned and response2.is_planned:
-                    time.sleep(3)
-                    return dm_env.TimeStep(
-                        step_type=dm_env.StepType.MID,
-                        reward=self.get_reward(),
-                        discount=None,
-                        observation=self.get_observation())
-                else:
-                    return False
+            if response1.is_planned and response2.is_planned:
+                time.sleep(3)
+                return dm_env.TimeStep(
+                    step_type=dm_env.StepType.MID,
+                    reward=self.get_reward(),
+                    discount=None,
+                    observation=self.get_observation())
+            else:
+                return False
         except rospy.ServiceException as e:
             print("Service call failed: %s" % e)
             return False
 
-    def go_home_pose_ur5(self, is_training=True):
-        if is_training:
-            time.sleep(8)
-            return True
-        else:
-            goal_gripper_pos = 0.087
-            gripper_pos = GripperCmd()
-            current_gripper_pos = self.gripper_states.position[0]
-            gradient = (goal_gripper_pos - current_gripper_pos) / 20
-            while current_gripper_pos < goal_gripper_pos:
-                current_gripper_pos += gradient
-                gripper_pos.position = current_gripper_pos
-                self.gripper_publisher.publish(gripper_pos)
-            rospy.wait_for_service('mover/move_robot_planning')
-            try:
-                move_robot = rospy.ServiceProxy('mover/move_robot_planning', MoveRobot)
+    def go_home_pose_ur5(self, pose):
+        self.move_joint_ur5(pose)
 
 
-                joint_trajectory = JointTrajectory()
-                joint_trajectory.joint_names = ["ur5e_elbow_joint", "ur5e_shoulder_lift_joint", "ur5e_shoulder_pan_joint", "ur5e_wrist_1_joint", "ur5e_wrist_2_joint", "ur5e_wrist_3_joint"]
+    def go_home_pose_yaskawa(self, pos):
 
-                # rad_pos = [-1.62, -1.45, -1.45, -1.23, 1.32, -1.52]
-                rad_pos = [-2.29, -1.95, -1.66, -0.46, 1.71, -1.62]
+        # goal_gripper_pos = 0.087
+        # gripper_pos = GripperCmd()
+        # current_gripper_pos = self.gripper_states.position[0]
+        # gradient = (goal_gripper_pos - current_gripper_pos) / 20
+        # while current_gripper_pos < goal_gripper_pos:
+        #     current_gripper_pos += gradient
+        #     gripper_pos.position = current_gripper_pos
+        #     self.gripper_publisher.publish(gripper_pos)
+        self.move_separated_gripper(pos[6])
+        rospy.wait_for_service('yaskawa/go_home_pos')
+        try:
+            move_robot = rospy.ServiceProxy('yaskawa/go_home_pos', MoveRobot)
 
+            request = MoveRobotRequest()
+            request.joint_trajectory = pos[:6]
+            # print(joint_trajectory)
 
-                rospy.loginfo(f"[0] {rad_pos[0]} [1] {rad_pos[1]} [2] {rad_pos[2]} [3] {rad_pos[3]} [4] {rad_pos[4]} [5] {rad_pos[5]}")
+            response = move_robot(request)
 
-                request = MoveRobotRequest()
-                request.joint_trajectory = rad_pos[:6]
-                # print(joint_trajectory)
+            if response.success:
+                return dm_env.TimeStep(
+                    step_type=dm_env.StepType.MID,
+                    reward=self.get_reward(),
+                    discount=None,
+                    observation=self.get_observation())
+            else:
+                rospy.logwarn("Failed: %s", response.message)
+                exit()
 
-                response = move_robot(request)
+        except rospy.ServiceException as e:
+            rospy.logerr("Service call failed: %s", e)
+            return False
+            
 
-                if response.success:
-                    time.sleep(3)
-                    return dm_env.TimeStep(
-                        step_type=dm_env.StepType.MID,
-                        reward=self.get_reward(),
-                        discount=None,
-                        observation=self.get_observation())
-                else:
-                    rospy.logwarn("Failed: %s", response.message)
-                    exit()
-
-            except rospy.ServiceException as e:
-                rospy.logerr("Service call failed: %s", e)
-                return False
-
-    def go_home_pose(self, is_training=True):
+    def go_home_pose(self, pose):
         if self.robot_name == 'om':
-            return self.go_home_pose_om(is_training)
+            return self.go_home_pose_om(pose)
         elif self.robot_name == 'ur5':
-            return self.go_home_pose_ur5(is_training)
+            return self.go_home_pose_ur5(pose)
+        elif self.robot_name == 'yaskawa':
+            return self.go_home_pose_yaskawa(pose, )
         
     
     def move_joint(self, rad_pos):
+        if self.robot_name == 'ur5':
+            self.move_joint_ur5(rad_pos)
+        elif self.robot_name == 'yaskawa':
+            self.move_joint_yaskawa(rad_pos)
+    
+    def move_joint_ur5(self, rad_pos):
         goal_gripper_pos = rad_pos[6]
         goal_joint_pos = rad_pos[:6]
         gripper_pos = GripperCmd()
@@ -428,20 +452,35 @@ class AlohaEnv:
         response = move_robot(request)
         return response
     
-    # def move_gripper(self, goal_gripper_pos):
-    #     gripper_pos = GripperCmd()
-    #     current_gripper_pos = self.gripper_states.position[0]
-    #     gradient = (goal_gripper_pos - current_gripper_pos) / 20
-    #     while current_gripper_pos < goal_gripper_pos:
-    #         current_gripper_pos += gradient
-    #         gripper_pos.position = current_gripper_pos
-    #         self.gripper_publisher.publish(gripper_pos)
+    def move_joint_yaskawa(self, rad_pos):
+        self.move_separated_gripper(rad_pos[6])
 
-    
-    # def move_direction(self, dir, q_init, kn):
-    #     cur_xpos = self.get_xpos()
-    #     qpos = xpos_to_qpos(xpos, kn, q_init)
-    #     return self.move_step(qpos)
+        rospy.wait_for_service('yaskawa/move_joint')
+        try:
+
+            move_robot = rospy.ServiceProxy('yaskawa/move_joint', MoveRobot)
+
+            request = MoveRobotRequest()
+            request.joint_trajectory = rad_pos[:6]
+            # print(joint_trajectory)
+
+            res = move_robot(request)
+            if res.success:
+                print('Arrived!')
+
+        except rospy.ServiceException as e:
+            rospy.logerr("Service call failed: %s", e)
+            return False
+
+    def move_separated_gripper(self, pos):
+        self.gripper_client.wait_for_server()
+
+        goal = CommandRobotiqGripperGoal()
+        goal.position = pos # 열기
+        goal.speed = 0.1
+        goal.force = 10
+        self.gripper_client.send_goal(goal)
+        self.gripper_client.wait_for_result()
     
     
 def make_env(camera_names):

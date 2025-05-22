@@ -1,6 +1,5 @@
 import h5py
 import numpy as np
-from curobo.types.base import TensorDeviceType
 
 from env import AlohaEnv
 
@@ -12,11 +11,10 @@ import rospy
 import cv2
 
 from tqdm import tqdm
-import kinematics
 from utils import sample_box_pose, sample_insertion_pose, qpos_to_xpos, xpos_to_qpos # robot functions
 
 
-def replay_episode(hdf5_path, task_config, kin_config, task_space, vel_control):
+def replay_episode(hdf5_path, task_config, task_space, vel_control, kn=None):
     home_pose = task_config['home_pose']
     end_pose = task_config['end_pose']
     pose_sleep = task_config['pose_sleep']
@@ -24,8 +22,7 @@ def replay_episode(hdf5_path, task_config, kin_config, task_space, vel_control):
     episode_len = task_config['episode_len']
 
     images = []
-    
-    kn = kinematics.Kinematics(kin_config)
+
         
     with h5py.File(hdf5_path, 'r') as f:
         actions = f[f"action"][:]
@@ -41,8 +38,7 @@ def replay_episode(hdf5_path, task_config, kin_config, task_space, vel_control):
         
         rospy.init_node("replay_episode_node", anonymous=False)
         
-        env = AlohaEnv(kin_config, camera_names)
-
+        env = AlohaEnv(camera_names, kn=kn, robot_name='yaskawa')
 
         env.move_joint(actions[0])
 
@@ -69,12 +65,12 @@ def replay_episode(hdf5_path, task_config, kin_config, task_space, vel_control):
                 action = qaction
                 # print(kn.forward_kinematics(action))
 
-            print(f"xpos:{xpos}")
-            print(f"xact:{xaction}")
+            # print(f"xpos:{xpos}")
+            # print(f"xact:{xaction}")
             print(f"qpos:{qpos}")
             print(f"action:{action}")
-            print(f"xvel_action:{xvel_action}")
-            print(f"xvel:{xvel}")
+            # print(f"xvel_action:{xvel_action}")
+            # print(f"xvel:{xvel}")
             env.move_step(action)
             
             cur_img = []
@@ -82,7 +78,7 @@ def replay_episode(hdf5_path, task_config, kin_config, task_space, vel_control):
                 cur_img.append(images[index][i])
             
 
-            time.sleep(0.1)
+            time.sleep(0.2)
             
             max_height = 480
             max_width = 640
@@ -96,35 +92,45 @@ def replay_episode(hdf5_path, task_config, kin_config, task_space, vel_control):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 quit()
 
-        for pos in end_pose:
-            env.move_joint(pos)
-            time.sleep(pose_sleep)
+        # for pos in end_pose:
+        #     env.move_joint(pos)
+        #     time.sleep(pose_sleep)
             
 
 if __name__ == "__main__":
     # 기본값 설정
     dir = "./datasets"
     # work = "pick_tomato"
-    work = "pick_tomato"
-    episode = "0"
+    work = "grasp_cable_yaskawa"
+    episode = "1"
     task_config = TASK_CONFIGS[work]
-    kin_config = {
-        'robot_file': 'ur5e.yml',
-        'world_file': "collision_base.yml",
-        'rotation_threshold': 0.1,
-        'position_threshold': 0.01,
-        'num_seeds': 500,
-        'self_collision_check': True,
-        'self_collision_opt': False,
-        'tensor_args': TensorDeviceType(),
-        'use_cuda_graph': True
-    }
+
+    task_space = False
+    vel_control = True
+    
+    kn = None
+    if task_space:
+
+        import kinematics
+        from curobo.types.base import TensorDeviceType
+
+        kin_config = {
+            'robot_file': 'ur5e.yml',
+            'world_file': "collision_base.yml",
+            'rotation_threshold': 0.1,
+            'position_threshold': 0.01,
+            'num_seeds': 500,
+            'self_collision_check': True,
+            'self_collision_opt': False,
+            'tensor_args': TensorDeviceType(),
+            'use_cuda_graph': True
+        }
+        kn = kinematics.Kinematics(kin_config)
+
 
     # HDF5 파일 경로
     hdf5_path = f"{task_config['dataset_dir']}/original/episode_{episode}.hdf5"
-    print(hdf5_path)
     
-    task_space = True
-    vel_control = True
+
     # 함수 호출
-    replay_episode(hdf5_path, task_config, kin_config, task_space, vel_control)
+    replay_episode(hdf5_path, task_config, task_space, vel_control, kn)
