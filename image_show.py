@@ -11,8 +11,8 @@ import numpy as np
 from utils import zoom_image
 from constants import TASK_CONFIGS
 
-from ultralytics import YOLO
-from apply_yolo import mask_outside_boxes
+# from ultralytics import YOLO
+# from apply_yolo import mask_outside_boxes
 
 
 class ImageSubscriber:

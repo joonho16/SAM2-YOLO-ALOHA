@@ -7,7 +7,7 @@ from torch.utils.data import TensorDataset, DataLoader
 import IPython
 
 import numpy as np
-from ultralytics import YOLO
+# from ultralytics import YOLO
 import cv2
 
 import json
@@ -18,7 +18,7 @@ from sensor_msgs.msg import CompressedImage
 
 
 e = IPython.embed
-yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
+# yolo_model = YOLO('yolo/runs/detect/train2/weights/best.pt')
 
 
 class EpisodicDataset(torch.utils.data.Dataset):
