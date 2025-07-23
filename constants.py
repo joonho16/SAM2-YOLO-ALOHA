@@ -1,5 +1,22 @@
 DATA_DIR = './datasets'
 TASK_CONFIGS = {
+    'grasp_ball':{
+        'dataset_dir': DATA_DIR + '/grasp_cable_yaskawa',
+        'num_episodes': 36,
+        'episode_len': 120,
+        'camera_names': ['camera/camrea'],
+        'camera_config': {
+            'camera/camrea': {
+                'resize': {
+                    'size': (200, 150)
+                },
+            },
+            
+        },
+        #'home_pose': [[0,0,0,0,0,-1.57, 0.087]],
+        #'end_pose': [[0,0,0,0,0,-1.57, 0.087]],
+        #'pose_sleep': 0
+    },
     'push_yellow_sponge':{
         'dataset_dir': DATA_DIR + '/push_yellow_sponge',
         'num_episodes': 50,
