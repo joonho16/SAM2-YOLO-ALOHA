@@ -4,9 +4,9 @@ TASK_CONFIGS = {
         'dataset_dir': DATA_DIR + '/grasp_cable_yaskawa',
         'num_episodes': 36,
         'episode_len': 120,
-        'camera_names': ['camera/camrea'],
+        'camera_names': ['camera/camera'],
         'camera_config': {
-            'camera/camrea': {
+            'camera/camera': {
                 'resize': {
                     'size': (200, 150)
                 },
