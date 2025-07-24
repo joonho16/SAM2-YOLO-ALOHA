@@ -9,10 +9,10 @@ import rospy
 import numpy as np
 import cv2
 
-from ultralytics import YOLO
-from apply_yolo import mask_outside_boxes
+# from ultralytics import YOLO
+# from apply_yolo import mask_outside_boxes
 
-from utils import zoom_image, qpos_to_xpos, fetch_image_with_config
+# from utils import zoom_image, qpos_to_xpos, fetch_image_with_config
 
 def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True):
 
@@ -20,10 +20,10 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
     max_timesteps = task_config['episode_len']
     camera_names = task_config['camera_names']
     camera_config = task_config['camera_config']
-    home_pose = task_config['home_pose']
-    end_pose = task_config['end_pose']
+    # home_pose = task_config['home_pose']
+    # end_pose = task_config['end_pose']
 
-    env.go_home_pose(home_pose[0])
+    # env.go_home_pose(home_pose[0])
     
     print(f'Dataset name: {dataset_name}')
 
@@ -47,7 +47,7 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
         timesteps.append(ts)
         time.sleep(0.1)
 
-    env.go_home_pose(end_pose[0])
+    # env.go_home_pose(end_pose[0])
 
     data_dict = {
         '/observations/qpos': [],
@@ -191,6 +191,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--task', action='store', type=str, help='Task name.', required=True)
+    parser.add_argument('--task', action='store', type=str, help='Task name.', default='grasp_ball', required=True)
     parser.add_argument('--episode_idx', action='store', type=int, help='Episode index.', default=None, required=False)
     main(vars(parser.parse_args()))
