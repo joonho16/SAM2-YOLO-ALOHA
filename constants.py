@@ -15,7 +15,7 @@ TASK_CONFIGS = {
         },
         #'home_pose': [[0,0,0,0,0,-1.57, 0.087]],
         #'end_pose': [[0,0,0,0,0,-1.57, 0.087]],
-        #'pose_sleep': 0
+        'pose_sleep': 1
     }
 }
 
@@ -30,7 +30,7 @@ TOPIC_NAME = {
 }
 
 JOINT_NAMES = {
-    'br_hand': ['thumb/FE', 'thumb/ABD', 'index/FE', 'middle/FE', 'ring/FE']
+    'br_hand': ['thumb/ABD', 'thumb/FE', 'index/ABD', 'index/FE', 'middle/ABD', 'middle/FE', 'ring/ABD', 'ring/FE']
 }
 
 TOOL_NAMES = {
