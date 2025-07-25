@@ -8,13 +8,13 @@ import dm_env
 import collections
 from cv_bridge import CvBridge
 from constants import DT, DEFAULT_CAMERA_NAMES, JOINT_LIMIT, TOPIC_NAME, JOINT_NAMES, TOOL_NAMES
-from open_manipulator_msgs.srv import SetJointPositionRequest, SetJointPosition
-from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
-from robotiq_2f_gripper_msgs.msg import CommandRobotiqGripperAction, CommandRobotiqGripperGoal, CommandRobotiqGripperActionFeedback, CommandRobotiqGripperActionGoal
+# from open_manipulator_msgs.srv import SetJointPositionRequest, SetJointPosition
+# from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
+# from robotiq_2f_gripper_msgs.msg import CommandRobotiqGripperAction, CommandRobotiqGripperGoal, CommandRobotiqGripperActionFeedback, CommandRobotiqGripperActionGoal
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from robotiq_85_msgs.msg import GripperCmd
-from gello_controller.srv import MoveRobot, MoveRobotRequest
+# from robotiq_85_msgs.msg import GripperCmd
+# from gello_controller.srv import MoveRobot, MoveRobotRequest
 import actionlib
 from PIL import Image as PILImage
 import numpy as np
@@ -55,6 +55,10 @@ class AlohaEnv:
         elif robot_name == 'om':
             rospy.Subscriber("/joint_states", JointState, self.joint_state_cb)
             rospy.Subscriber("/master_joint_states", JointState, self.master_joint_state_cb)
+
+        elif robot_name == 'br_hand':
+            rospy.Subscriber('/motor', JointState, self.joint_state_cb)
+            rospy.Subscriber('hand/right/controller/joint_states', JointState, self.master_joint_state_cb)
 
         for cam_name in camera_names:
             setattr(self, cam_name, None)
@@ -125,7 +129,7 @@ class AlohaEnv:
     def get_observation(self):
         obs = collections.OrderedDict()
         obs['qpos'] = self.get_qpos()
-        obs['xpos'] = self.get_xpos()
+        # obs['xpos'] = self.get_xpos()
         obs['qvel'] = self.get_qvel()
         obs['effort'] = self.get_effort()
         obs['images'] = self.get_images()
@@ -276,6 +280,8 @@ class AlohaEnv:
             return self.joint_states.position + self.gripper_states.position
         elif self.robot_name == 'yaskawa':
             return self.joint_states.position + (self.gripper_states.position,)
+        elif self.robot_name == 'br_hand':
+            return self.joint_states.position
         
     def get_xpos(self):
         if self.robot_name == 'om': 
@@ -303,6 +309,8 @@ class AlohaEnv:
             return self.joint_states.velocity + self.gripper_states.velocity
         elif self.robot_name == 'yaskawa':
             return self.joint_states.velocity + (0,)
+        elif self.robot_name == 'br_hand':
+            return self.joint_states.velocity
     
     def get_effort(self):
         if self.robot_name == 'om':
@@ -311,6 +319,8 @@ class AlohaEnv:
             return self.joint_states.effort + (0,)
         elif self.robot_name == 'yaskawa':
             return self.joint_states.effort + (0,)
+        elif self.robot_name == 'br_hand':
+            return self.joint_states.effort
     
     def get_action(self):
         if self.robot_name == 'om':
@@ -319,6 +329,8 @@ class AlohaEnv:
             return self.master_joint_states.points[0].positions + (self.master_gripper_states.position,)
         elif self.robot_name == 'yaskawa':
             return self.master_joint_states.position + (self.master_gripper_states.position,)
+        elif self.robot_name == 'br_hand':
+            return self.master_joint_states.position
         
     def get_xaction(self):
         if self.robot_name == 'om':
