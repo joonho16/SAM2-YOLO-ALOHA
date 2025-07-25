@@ -12,7 +12,7 @@ import cv2
 # from ultralytics import YOLO
 # from apply_yolo import mask_outside_boxes
 
-# from utils import zoom_image, qpos_to_xpos, fetch_image_with_config
+from utils import zoom_image, qpos_to_xpos, fetch_image_with_config
 
 def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True):
 
@@ -177,7 +177,7 @@ def main(args):
 
         kn = kinematics.Kinematics(kin_config)
 
-    env = AlohaEnv(camera_names, robot_name='yaskawa', kn=kn)
+    env = AlohaEnv(camera_names, robot_name='br_hand', kn=kn)
 
     if args['episode_idx'] is not None:
         episode_idx = args['episode_idx']
@@ -191,6 +191,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--task', action='store', type=str, help='Task name.', default='grasp_ball', required=True)
+    parser.add_argument('--task', action='store', type=str, help='Task name.', default='grasp_ball', required=False)
     parser.add_argument('--episode_idx', action='store', type=int, help='Episode index.', default=None, required=False)
     main(vars(parser.parse_args()))
