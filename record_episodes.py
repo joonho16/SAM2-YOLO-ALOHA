@@ -27,7 +27,7 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
     
     print(f'Dataset name: {dataset_name}')
 
-    joint_len = 7
+    joint_len = 8
 
     # saving dataset
     if not os.path.isdir(dataset_dir):
@@ -129,7 +129,7 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
         _ = obs.create_dataset('xvel', (max_timesteps, 8))
         _ = obs.create_dataset('qvel', (max_timesteps, joint_len))
         _ = obs.create_dataset('effort', (max_timesteps, joint_len))
-        _ = root.create_dataset('action', (max_timesteps, joint_len))
+        _ = root.create_dataset('action', (max_timesteps, 5))
         _ = root.create_dataset('xaction', (max_timesteps, 8))
         _ = root.create_dataset('xvel_action', (max_timesteps, 8))
 
