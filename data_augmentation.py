@@ -135,8 +135,8 @@ def augment_data_bgr(hdf5_path, new_hdf5_path, cameras):
 if __name__ == "__main__":
     # 기본 설정
     dir = "./datasets"
-    work = "grasp_cable"
-    data_dir = "grasp_cable_v2"
+    work = "grasp_ball"
+    data_dir = "grasp_ball"
     
     # 예제: original 폴더에서 이미지를 불러와서
     #       밝기 조정, crop, bgr->rgb 등을 적용해서 aug 폴더에 저장
@@ -164,14 +164,14 @@ if __name__ == "__main__":
             # 1) 어두운(darken_factor=0.7) 버전
             ####################################################
             new_hdf5_path = f"{new_dir}/dark/episode_{d_count}.hdf5"
-            augment_data_darken(hdf5_path, new_hdf5_path, 0.7, cameras=['camera1', 'camera2', 'camera3'])
+            augment_data_darken(hdf5_path, new_hdf5_path, 0.7, cameras=['camera/camera'])
             print(f"{d_count}번(어두운) 에피소드가 저장되었습니다.")
             
             ####################################################
             # 2) 밝은(darken_factor=1.3) 버전
             ####################################################
             new_hdf5_path = f"{new_dir}/light/episode_{d_count}.hdf5"
-            augment_data_darken(hdf5_path, new_hdf5_path, 1.3, cameras=['camera1', 'camera2', 'camera3'])
+            augment_data_darken(hdf5_path, new_hdf5_path, 1.3, cameras=['camera/camera'])
             print(f"{d_count}번(밝은) 에피소드가 저장되었습니다.")
             
             ####################################################
@@ -179,7 +179,7 @@ if __name__ == "__main__":
             ####################################################
             for i in range(crop_num):
                 new_hdf5_path = f"{new_dir}/crop/episode_{d_count * crop_num + i}.hdf5"
-                augment_data_scale_and_shift(hdf5_path, new_hdf5_path, cameras=['camera1', 'camera2', 'camera3'])
+                augment_data_scale_and_shift(hdf5_path, new_hdf5_path, cameras=['camera/camera'])
                 print(f"{d_count}번(크롭) 에피소드가 저장되었습니다.")
 
 
@@ -187,7 +187,7 @@ if __name__ == "__main__":
             # 4) BGR -> RGB 변환 버전
             ####################################################
             new_hdf5_path = f"{new_dir}/bgr/episode_{d_count}.hdf5"
-            augment_data_bgr(hdf5_path, new_hdf5_path, cameras=['camera1', 'camera2', 'camera3'])
+            augment_data_bgr(hdf5_path, new_hdf5_path, cameras=['camera/camera'])
             print(f"{d_count}번(BGR->RGB) 에피소드가 저장되었습니다.")
             
             
