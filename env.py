@@ -258,6 +258,13 @@ class AlohaEnv:
             self.move_step(qpos)
         else:
             rospy.logerr("X step is too big!")
+
+    def move_step_br_hand(self, action):
+        rospy.set_param(f'control/thumb/ABD/val', float(action[0]))
+        rospy.set_param(f'control/thumb/FE/val', float(action[1]))
+        rospy.set_param(f'control/index/FE/val', float(action[2]))
+        rospy.set_param(f'control/middle/FE/val', float(action[3]))
+        rospy.set_param(f'control/ring/FE/val', float(action[4]))
         
     def move_step(self, action):
         if self.robot_name == 'om':
@@ -266,6 +273,9 @@ class AlohaEnv:
             self.move_step_ur5(action)
         elif self.robot_name == 'yaskawa':
             self.move_step_yaskawa(action)
+        elif self.robot_name == 'br_hand':
+            self.move_step_br_hand(action)
+
         return dm_env.TimeStep(
             step_type=dm_env.StepType.MID,
             reward=self.get_reward(),
@@ -443,6 +453,8 @@ class AlohaEnv:
             self.move_joint_ur5(rad_pos)
         elif self.robot_name == 'yaskawa':
             self.move_joint_yaskawa(rad_pos)
+        elif self.robot_name == 'br_hand':
+            self.move_joint_br_hand(rad_pos)
     
     def move_joint_ur5(self, rad_pos):
         goal_gripper_pos = rad_pos[6]
@@ -494,7 +506,11 @@ class AlohaEnv:
         self.gripper_client.send_goal(goal)
         self.gripper_client.wait_for_result()
     
-    
+    def move_joint_br_hand(self, rad_pos):
+
+        for key, reg_val in zip(self.joint_names, rad_pos):
+            rospy.set_param(f'control/{key}/val', float(reg_val))
+
 def make_env(camera_names):
     env = AlohaEnv(camera_names)
     return env
