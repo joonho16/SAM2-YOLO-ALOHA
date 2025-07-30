@@ -3,7 +3,7 @@ TASK_CONFIGS = {
     'grasp_ball':{
         'dataset_dir': DATA_DIR + '/grasp_ball',
         'num_episodes': 1,
-        'episode_len': 50,
+        'episode_len': 500,
         'camera_names': ['camera/camera'],
         'camera_config': {
             'camera/camera': {

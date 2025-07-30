@@ -72,7 +72,7 @@ def main(args):
     pose_sleep = task_config['pose_sleep']
 
     # fixed parameters
-    state_dim = 8 if task_space else 14
+    state_dim = 8 if task_space else 8
     lr_backbone = 1e-5
     backbone = 'resnet18' if args['backbone'] is None else args['backbone']
     if policy_class == 'ACT':
@@ -326,7 +326,7 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
     import rospy
 
     rospy.init_node("imitate_episode_node", anonymous=False)
-    env = AlohaEnv(camera_names, robot_name='yaskawa')
+    env = AlohaEnv(camera_names, robot_name='br_hand')
     env_max_reward = 0
 
     if env.robot_name == 'ur5':
@@ -431,9 +431,9 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
                 obs = ts.observation
                     
                 cur_qpos = np.array(obs['qpos'])
-                cur_xpos = np.array(obs['xpos'])
-                cur_qvel = np.array(obs['qvel'])
-                cur_xvel = np.array([0] * state_dim)
+                # cur_xpos = np.array(obs['xpos'])
+                # cur_qvel = np.array(obs['qvel'])
+                # cur_xvel = np.array([0] * state_dim)
 
                 if task_space:
                     if vel_control:
@@ -451,7 +451,7 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
                 robot_input = pre_process(robot_input_raw)
                 robot_input = torch.from_numpy(robot_input).float().cuda().unsqueeze(0)
 
-                curr_image, memories = get_image(ts, camera_names, config['camera_config'], yolo_config, memories)
+                curr_image, memories = get_image(ts, camera_names, config['camera_config'], memories, yolo_config)
                 
                 with torch.inference_mode():
                     if not tcp_ctr.controlling:
@@ -497,7 +497,7 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
                         print(f"target_qpos:{target_qpos}")
                     else:
                         target_qpos = action
-                        target_xpos = qpos_to_xpos(target_qpos, kn)
+                        # target_xpos = qpos_to_xpos(target_qpos, kn)
                     # print(f"Get Action Time: {time.time() - start}")
                     ### step the environment
                     
@@ -543,7 +543,7 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
                 # print(f"Get Move Time: {time.time() - start}")
 
                 actions.append(target_qpos)
-                xactions.append(target_xpos)
+                # xactions.append(target_xpos)
                 
                 if restart_state[0]:
                     print("Restart")

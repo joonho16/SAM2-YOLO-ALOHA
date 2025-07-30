@@ -15,8 +15,8 @@ from utils import sample_box_pose, sample_insertion_pose, qpos_to_xpos, xpos_to_
 
 
 def replay_episode(hdf5_path, task_config, task_space, vel_control, kn=None):
-    # home_pose = task_config['home_pose']
-    # end_pose = task_config['end_pose']
+    home_pose = task_config['home_pose']
+    end_pose = task_config['end_pose']
     pose_sleep = task_config['pose_sleep']
     camera_names = task_config['camera_names']
     episode_len = task_config['episode_len']
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     dir = "./datasets"
     # work = "pick_tomato"
     work = "grasp_ball"
-    episode = "1"
+    episode = "0"
     task_config = TASK_CONFIGS[work]
 
     task_space = False

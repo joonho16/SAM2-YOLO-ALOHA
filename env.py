@@ -23,7 +23,7 @@ from utils import qpos_to_xpos, xpos_to_qpos, ros_image_to_numpy, rescale_val
 
 
 class AlohaEnv:
-    def __init__(self, camera_names=DEFAULT_CAMERA_NAMES, robot_name="ur5", kn=None):
+    def __init__(self, camera_names=DEFAULT_CAMERA_NAMES, robot_name="br_hands", kn=None):
         self.robot_name = robot_name
         self.joint_states = None
         self.wrist_state = None
@@ -267,9 +267,12 @@ class AlohaEnv:
     def move_step_br_hand(self, action):
         rospy.set_param(f'control/thumb/ABD/val', float(action[0]))
         rospy.set_param(f'control/thumb/FE/val', float(action[1]))
-        rospy.set_param(f'control/index/FE/val', float(action[2]))
-        rospy.set_param(f'control/middle/FE/val', float(action[3]))
-        rospy.set_param(f'control/ring/FE/val', float(action[4]))
+        rospy.set_param(f'control/index/ABD/val', float(action[2]))
+        rospy.set_param(f'control/index/FE/val', float(action[3]))
+        rospy.set_param(f'control/middle/ABD/val', float(action[4]))
+        rospy.set_param(f'control/middle/FE/val', float(action[5]))
+        rospy.set_param(f'control/ring/ABD/val', float(action[6]))
+        rospy.set_param(f'control/ring/FE/val', float(action[7]))
         
     def move_step(self, action):
         if self.robot_name == 'om':
@@ -297,14 +300,15 @@ class AlohaEnv:
             return self.joint_states.position + (self.gripper_states.position,)
         elif self.robot_name == 'br_hand':
             joint_pos = self.joint_states.position
-            angular_vel = (self.wrist_state.angular_velocity.x,
-                           self.wrist_state.angular_velocity.y,
-                           self.wrist_state.angular_velocity.z)
-            linear_acc = (self.wrist_state.linear_acceleration.x,
-                          self.wrist_state.linear_acceleration.y,
-                          self.wrist_state.linear_acceleration.z)
+            # angular_vel = (self.wrist_state.angular_velocity.x,
+            #                self.wrist_state.angular_velocity.y,
+            #                self.wrist_state.angular_velocity.z)
+            # linear_acc = (self.wrist_state.linear_acceleration.x,
+            #               self.wrist_state.linear_acceleration.y,
+            #               self.wrist_state.linear_acceleration.z)
 
-        return joint_pos + angular_vel + linear_acc
+        # return joint_pos + angular_vel + linear_acc
+        return joint_pos
         
     def get_xpos(self):
         if self.robot_name == 'om': 
