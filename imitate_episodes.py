@@ -11,7 +11,7 @@ import time
 from matplotlib.animation import FuncAnimation
 
 from constants import DT
-from constants import TASK_CONFIGS, USE_YOLO
+from constants import TASK_CONFIGS#, USE_YOLO
 from policy import ACTPolicy, CNNMLPPolicy
 from utils import load_data, fetch_image_with_config # data functions
 from utils import sample_box_pose, sample_insertion_pose, qpos_to_xpos, xpos_to_qpos # robot functions
@@ -28,7 +28,7 @@ import h5py
 
 import cv2
 
-from TCPController import TCPController
+# from TCPController import TCPController
 
 from pynput import keyboard
 
@@ -72,7 +72,7 @@ def main(args):
     pose_sleep = task_config['pose_sleep']
 
     # fixed parameters
-    state_dim = 8 if task_space else 7
+    state_dim = 8 if task_space else 14
     lr_backbone = 1e-5
     backbone = 'resnet18' if args['backbone'] is None else args['backbone']
     if policy_class == 'ACT':
@@ -293,6 +293,7 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
     dataset_dir = f'{dataset_dir}/original'
 
     yolo_config = None
+    USE_YOLO = False
     if USE_YOLO:
         from ultralytics import YOLO
 
