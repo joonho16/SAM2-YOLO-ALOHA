@@ -2,7 +2,7 @@ python3 ./imitate_episodes.py \
 --task_name grasp_ball \
 --ckpt_dir ./ckpt/grasp_ball \
 --policy_class ACT --kl_weight 10 --chunk_size 15 --hidden_dim 512 --batch_size 25 --dim_feedforward 3200 --backbone resnet18 \
---num_epochs 1000 --lr 1e-5 --data_folders original -1  \
+--num_epochs 1000 --lr 1e-5 --data_folders original -1  aug/bgr -1 aug/crop -1 aug/dark -1 aug/light -1 \
 --seed 0
 
 # python3 ./imitate_episodes.py \
