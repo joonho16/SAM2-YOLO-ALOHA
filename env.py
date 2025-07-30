@@ -1,7 +1,7 @@
 import rospy
 import threading
 import math
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, Imu
 from sensor_msgs.msg import Image, CompressedImage
 import time
 import dm_env
@@ -26,6 +26,7 @@ class AlohaEnv:
     def __init__(self, camera_names=DEFAULT_CAMERA_NAMES, robot_name="ur5", kn=None):
         self.robot_name = robot_name
         self.joint_states = None
+        self.wrist_state = None
         self.camera_names = camera_names
         # self.cam_1_image = None
         # self.cam_2_image = None
@@ -59,6 +60,7 @@ class AlohaEnv:
         elif robot_name == 'br_hand':
             rospy.Subscriber('/motor', JointState, self.joint_state_cb)
             rospy.Subscriber('hand/right/controller/joint_states', JointState, self.master_joint_state_cb)
+            rospy.Subscriber('/camera/camera/imu', Imu, self.wrist_state_cb)
 
         for cam_name in camera_names:
             setattr(self, cam_name, None)
@@ -71,7 +73,10 @@ class AlohaEnv:
 
         time.sleep(0.1)
         # rospy.spin()
-
+    
+    def wrist_state_cb(self, msg):
+        with self.js_mutex:
+            self.wrist_state = msg
 
     def joint_state_cb(self, msg):
         with self.js_mutex:
@@ -291,7 +296,15 @@ class AlohaEnv:
         elif self.robot_name == 'yaskawa':
             return self.joint_states.position + (self.gripper_states.position,)
         elif self.robot_name == 'br_hand':
-            return self.joint_states.position
+            joint_pos = self.joint_states.position
+            angular_vel = (self.wrist_state.angular_velocity.x,
+                           self.wrist_state.angular_velocity.y,
+                           self.wrist_state.angular_velocity.z)
+            linear_acc = (self.wrist_state.linear_acceleration.x,
+                          self.wrist_state.linear_acceleration.y,
+                          self.wrist_state.linear_acceleration.z)
+
+        return joint_pos + angular_vel + linear_acc
         
     def get_xpos(self):
         if self.robot_name == 'om': 
