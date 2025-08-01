@@ -300,15 +300,18 @@ class AlohaEnv:
             return self.joint_states.position + (self.gripper_states.position,)
         elif self.robot_name == 'br_hand':
             joint_pos = self.joint_states.position
-            # angular_vel = (self.wrist_state.angular_velocity.x,
-            #                self.wrist_state.angular_velocity.y,
-            #                self.wrist_state.angular_velocity.z)
-            # linear_acc = (self.wrist_state.linear_acceleration.x,
-            #               self.wrist_state.linear_acceleration.y,
-            #               self.wrist_state.linear_acceleration.z)
+            return joint_pos
+            
+            angular_vel = (self.wrist_state.angular_velocity.x,
+                           self.wrist_state.angular_velocity.y,
+                           self.wrist_state.angular_velocity.z)
+            linear_acc = (self.wrist_state.linear_acceleration.x,
+                          self.wrist_state.linear_acceleration.y,
+                          self.wrist_state.linear_acceleration.z)
 
-        # return joint_pos + angular_vel + linear_acc
-        return joint_pos
+            # return joint_pos + angular_vel + linear_acc
+        
+            return angular_vel + linear_acc
         
     def get_xpos(self):
         if self.robot_name == 'om': 
@@ -337,7 +340,8 @@ class AlohaEnv:
         elif self.robot_name == 'yaskawa':
             return self.joint_states.velocity + (0,)
         elif self.robot_name == 'br_hand':
-            return self.joint_states.velocity
+            # return self.joint_states.velocity
+            return 
     
     def get_effort(self):
         if self.robot_name == 'om':
@@ -347,7 +351,8 @@ class AlohaEnv:
         elif self.robot_name == 'yaskawa':
             return self.joint_states.effort + (0,)
         elif self.robot_name == 'br_hand':
-            return self.joint_states.effort
+            # return self.joint_states.effort
+            return
     
     def get_action(self):
         if self.robot_name == 'om':
@@ -358,6 +363,16 @@ class AlohaEnv:
             return self.master_joint_states.position + (self.master_gripper_states.position,)
         elif self.robot_name == 'br_hand':
             return self.master_joint_states.position
+
+            angular_vel = (self.wrist_state.angular_velocity.x,
+                           self.wrist_state.angular_velocity.y,
+                           self.wrist_state.angular_velocity.z)
+            linear_acc = (self.wrist_state.linear_acceleration.x,
+                          self.wrist_state.linear_acceleration.y,
+                          self.wrist_state.linear_acceleration.z)
+            
+            return angular_vel + linear_acc
+
         
     def get_xaction(self):
         if self.robot_name == 'om':

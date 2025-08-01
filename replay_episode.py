@@ -26,11 +26,11 @@ def replay_episode(hdf5_path, task_config, task_space, vel_control, kn=None):
         
     with h5py.File(hdf5_path, 'r') as f:
         actions = f[f"action"][:]
-        xactions = f[f"xaction"][:]
-        xvel_actions = f[f"xvel_action"][:]
-        xpos_data = f["observations/xpos"][:]
+        # xactions = f[f"xaction"][:]
+        # xvel_actions = f[f"xvel_action"][:]
+        # xpos_data = f["observations/xpos"][:]
         qpos_data = f["observations/qpos"][:]
-        xvel_data = f["observations/xvel"][:]
+        # xvel_data = f["observations/xvel"][:]
 
         for im_name in camera_names:
             images.append(f[f"observations/images/{im_name}"])
@@ -47,12 +47,12 @@ def replay_episode(hdf5_path, task_config, task_space, vel_control, kn=None):
 
         for i in tqdm(range(len(actions))):
             qaction = actions[i]
-            xaction = xactions[i]
-            xvel_action = xvel_actions[i]
+            # xaction = xactions[i]
+            # xvel_action = xvel_actions[i]
             
-            xpos = xpos_data[i]
+            # xpos = xpos_data[i]
             qpos = qpos_data[i]
-            xvel = xvel_data[i]
+            # xvel = xvel_data[i]
             if task_space:
                 if vel_control:
                     cur_xpos = env.get_xpos()

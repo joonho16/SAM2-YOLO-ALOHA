@@ -66,7 +66,7 @@ class EpisodicDataset(torch.utils.data.Dataset):
             else:
                 qpos = root['/observations/qpos'][start_ts]
 
-            qvel = root['/observations/qvel'][start_ts]
+            # qvel = root['/observations/qvel'][start_ts]
             image_dict = dict()
             for cam_name in self.camera_names:
                 image_dict[cam_name] = root[f'/observations/images/{cam_name}'][start_ts]

@@ -27,7 +27,7 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
     
     print(f'Dataset name: {dataset_name}')
 
-    joint_len = 8 #14
+    joint_len = 8 #8
 
     # saving dataset
     if not os.path.isdir(dataset_dir):
@@ -51,13 +51,13 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
 
     data_dict = {
         '/observations/qpos': [],
-        '/observations/xpos': [],
-        '/observations/xvel': [],
-        '/observations/qvel': [],
-        '/observations/effort': [],
+        # '/observations/xpos': [],
+        # '/observations/xvel': [],
+        # '/observations/qvel': [],
+        # '/observations/effort': [],
         '/action': [],
-        '/xaction': [],
-        '/xvel_action': [],
+        # '/xaction': [],
+        # '/xvel_action': [],
     }
     for cam_name in camera_names:
         data_dict[f'/observations/images/{cam_name}'] = []
@@ -65,39 +65,18 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
     timesteps.pop(len(timesteps) - 1)
 
     step = 0
-    while timesteps:
+    # actions.pop(0) # 하나 버리고 다음거
+    
+    # max_timesteps = max_timesteps - 1
+
+    while step < max_timesteps:
         ts = timesteps.pop(0)
         action = actions.pop(0) 
         
         data_dict['/observations/qpos'].append(ts.observation['qpos'])
-        data_dict['/observations/qvel'].append(ts.observation['qvel'])
-        data_dict['/observations/effort'].append(ts.observation['effort'])
+        # data_dict['/observations/qvel'].append(ts.observation['qvel'])
+        # data_dict['/observations/effort'].append(ts.observation['effort'])
         data_dict['/action'].append(action)
-
-        if kn is not None:
-            if step == 0:
-                last_xpos = ts.observation['xpos']
-                last_xaction = qpos_to_xpos(action, kn)
-            xpos = qpos_to_xpos(ts.observation['qpos'], kn)
-            data_dict['/observations/xpos'].append(xpos)
-            xaction = qpos_to_xpos(action, kn)
-            data_dict['/xaction'].append(xaction)
-        
-            xvel = last_xpos - xpos
-            data_dict['/observations/xvel'].append(xvel)
-        
-            xvel_action = last_xaction - xaction
-            data_dict['/xvel_action'].append(xvel_action)
-        
-            last_xpos = xpos
-
-            last_xaction = xaction
-        else:
-            data_dict['/observations/xpos'].append([0] * 8)
-            data_dict['/xaction'].append([0] * 8)
-            data_dict['/observations/xvel'].append([0] * 8)
-            data_dict['/xvel_action'].append([0] * 8)
-
 
         for cam_name in camera_names:
             image = ts.observation['images'][cam_name]
@@ -125,13 +104,13 @@ def capture_one_episode(env, task_config, dataset_name, kn=None, overwrite=True)
             # compression='gzip',compression_opts=2,)
             # compression=32001, compression_opts=(0, 0, 0, 0, 9, 1, 1), shuffle=False)
         _ = obs.create_dataset('qpos', (max_timesteps, joint_len))
-        _ = obs.create_dataset('xpos', (max_timesteps, 8))
-        _ = obs.create_dataset('xvel', (max_timesteps, 8))
-        _ = obs.create_dataset('qvel', (max_timesteps, 8))
-        _ = obs.create_dataset('effort', (max_timesteps, 8))
+        # _ = obs.create_dataset('xpos', (max_timesteps, 8))
+        # _ = obs.create_dataset('xvel', (max_timesteps, 8))
+        # _ = obs.create_dataset('qvel', (max_timesteps, 8))
+        # _ = obs.create_dataset('effort', (max_timesteps, 8))
         _ = root.create_dataset('action', (max_timesteps, joint_len))
-        _ = root.create_dataset('xaction', (max_timesteps, 8))
-        _ = root.create_dataset('xvel_action', (max_timesteps, 8))
+        # _ = root.create_dataset('xaction', (max_timesteps, 8))
+        # _ = root.create_dataset('xvel_action', (max_timesteps, 8))
 
         for name, array in data_dict.items():
             root[name][...] = array
