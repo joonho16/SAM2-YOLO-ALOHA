@@ -135,8 +135,8 @@ def augment_data_bgr(hdf5_path, new_hdf5_path, cameras):
 if __name__ == "__main__":
     # 기본 설정
     dir = "./datasets"
-    work = "grasp_ball"
-    data_dir = "grasp_ball"
+    work = "grasp_obj"
+    data_dir = "grasp_obj"
     
     # 예제: original 폴더에서 이미지를 불러와서
     #       밝기 조정, crop, bgr->rgb 등을 적용해서 aug 폴더에 저장

@@ -170,6 +170,6 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--task', action='store', type=str, help='Task name.', default='grasp_ball', required=False)
+    parser.add_argument('--task', action='store', type=str, help='Task name.', default='grasp_obj', required=False)
     parser.add_argument('--episode_idx', action='store', type=int, help='Episode index.', default=None, required=False)
     main(vars(parser.parse_args()))

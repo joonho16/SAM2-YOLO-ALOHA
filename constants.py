@@ -1,7 +1,7 @@
 DATA_DIR = './datasets'
 TASK_CONFIGS = {
-    'grasp_ball':{
-        'dataset_dir': DATA_DIR + '/grasp_ball',
+    'grasp_obj':{
+        'dataset_dir': DATA_DIR + '/grasp_obj',
         'num_episodes': 1,
         'episode_len': 50, #500
         'camera_names': ['camera/camera'],

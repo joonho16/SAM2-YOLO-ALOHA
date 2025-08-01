@@ -102,7 +102,7 @@ if __name__ == "__main__":
     # 기본값 설정
     dir = "./datasets"
     # work = "pick_tomato"
-    work = "grasp_ball"
+    work = "grasp_obj"
     episode = "0"
     task_config = TASK_CONFIGS[work]
 
