@@ -72,7 +72,7 @@ def main(args):
     pose_sleep = task_config['pose_sleep']
 
     # fixed parameters
-    state_dim = 8 if task_space else 8
+    state_dim = 14
     lr_backbone = 1e-5
     backbone = 'resnet18' if args['backbone'] is None else args['backbone']
     if policy_class == 'ACT':
@@ -348,7 +348,7 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
         num_queries = policy_config['num_queries']
 
     data_timesteps = max_timesteps
-    max_timesteps = int(max_timesteps * 1.3) # may increase for real-world tasks
+    max_timesteps = int(max_timesteps * 100) # may increase for real-world tasks
 
     num_rollouts = 100
     episode_returns = []
@@ -501,7 +501,7 @@ def eval_bc(config, ckpt_name, record_episode=True, kn=None):
                     # print(f"Get Action Time: {time.time() - start}")
                     ### step the environment
                     
-                    print(target_qpos)
+                    # print(target_qpos)
                     ts = env.move_step(target_qpos)
                     
                     # while True:

@@ -1,5 +1,39 @@
 DATA_DIR = './datasets'
 TASK_CONFIGS = {
+    'grasp_hammer':{
+        'dataset_dir': DATA_DIR + '/grasp_hammer',
+        'num_episodes': 1,
+        'episode_len': 30, #500
+        'camera_names': ['camera/camera'],
+        'camera_config': {
+            'camera/camera': {
+                'resize': {
+                    'size': (200, 150)
+                },
+            },
+            
+        },
+        'home_pose': [[3.6,0.98,3.15,6.27,3.02,1.88, 3.02, 0.9, 0, 0, 0, 0, 0, 0]],
+        'end_pose': [[3.6,0.98,3.15,6.27,3.02,1.88, 3.02, 0.9, 0, 0, 0, 0, 0, 0]],
+        'pose_sleep': 1
+    }, 
+    'grasp_nail':{
+        'dataset_dir': DATA_DIR + '/grasp_nail',
+        'num_episodes': 1,
+        'episode_len': 50, #500
+        'camera_names': ['camera/camera'],
+        'camera_config': {
+            'camera/camera': {
+                'resize': {
+                    'size': (200, 150)
+                },
+            },
+            
+        },
+        'home_pose': [[3.6,0.98,3.15,6.27,3.02,1.88, 3.02, 0.9, 0, 0, 0, 0, 0, 0]],
+        'end_pose': [[3.6,0.98,3.15,6.27,3.02,1.88, 3.02, 0.9, 0, 0, 0, 0, 0, 0]],
+        'pose_sleep': 1
+    },
     'grasp_obj':{
         'dataset_dir': DATA_DIR + '/grasp_obj',
         'num_episodes': 1,

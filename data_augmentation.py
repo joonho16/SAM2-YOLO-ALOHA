@@ -140,7 +140,7 @@ if __name__ == "__main__":
     
     # 예제: original 폴더에서 이미지를 불러와서
     #       밝기 조정, crop, bgr->rgb 등을 적용해서 aug 폴더에 저장
-    folders = ['original']
+    folders = ['hammer']
 
     crop_num = 1
 
@@ -152,7 +152,7 @@ if __name__ == "__main__":
         for i in range(data_len):
             hdf5_path = f"{original_data_dir}/episode_{i}.hdf5"
 
-            new_dir = f"{dir}/{data_dir}/aug"
+            new_dir = f"{dir}/{data_dir}/aug_hammer"
             os.makedirs(new_dir, exist_ok=True)
             
             os.makedirs(f"{new_dir}/dark", exist_ok=True)

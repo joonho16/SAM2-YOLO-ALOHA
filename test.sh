@@ -1,6 +1,6 @@
 python3 ./imitate_episodes.py \
---task_name grasp_ball \
---ckpt_dir ./ckpt/grasp_ball \
+--task_name grasp_obj \
+--ckpt_dir ./ckpt/grasp_obj \
 --policy_class ACT --kl_weight 10 --chunk_size 15 --hidden_dim 512 --batch_size 25 --dim_feedforward 3200 --eval --backbone resnet18 --temporal_agg \
 --num_epochs 200 --lr 1e-5 \
 --seed 23

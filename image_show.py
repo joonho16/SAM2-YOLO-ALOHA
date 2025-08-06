@@ -22,8 +22,8 @@ class ImageSubscriber:
         self.cam_name = topic_name
         self.image = None
         self.lock = threading.Lock()
-        # self.image_sub = rospy.Subscriber(topic_name, CompressedImage, self.callback)
-        self.image_sub = rospy.Subscriber(topic_name, Image, self.callback)
+        self.image_sub = rospy.Subscriber(topic_name, CompressedImage, self.callback)
+        # self.image_sub = rospy.Subscriber(topic_name, Image, self.callback)
                 
 
     def callback(self, data):
@@ -70,10 +70,10 @@ class ImageSubscriber:
 
 def main():
     rospy.init_node('image_subscriber', anonymous=True)
-    task_name = 'grasp_ball'
+    task_name = 'grasp_hammer'
     subscribers = []
     for cam_name in TASK_CONFIGS[task_name]['camera_names']:
-        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw'))
+        subscribers.append(ImageSubscriber(f'/{cam_name}/color/image_raw/compressed'))
     camera_config = TASK_CONFIGS[task_name]['camera_config']
 
 

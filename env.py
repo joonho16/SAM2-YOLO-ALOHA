@@ -273,6 +273,12 @@ class AlohaEnv:
         rospy.set_param(f'control/middle/FE/val', float(action[5]))
         rospy.set_param(f'control/ring/ABD/val', float(action[6]))
         rospy.set_param(f'control/ring/FE/val', float(action[7]))
+        print(f'action 1', action[8])
+        print(f'action 2', action[9])
+        print(f'action 3', action[10])
+        print(f'action 4', action[11])
+        print(f'action 5', action[12])
+        print(f'action 6', action[13])
         
     def move_step(self, action):
         if self.robot_name == 'om':
@@ -299,9 +305,9 @@ class AlohaEnv:
         elif self.robot_name == 'yaskawa':
             return self.joint_states.position + (self.gripper_states.position,)
         elif self.robot_name == 'br_hand':
-            joint_pos = self.joint_states.position
-            return joint_pos
+            # return self.joint_states.position
             
+            joint_pos = self.joint_states.position
             angular_vel = (self.wrist_state.angular_velocity.x,
                            self.wrist_state.angular_velocity.y,
                            self.wrist_state.angular_velocity.z)
@@ -309,7 +315,7 @@ class AlohaEnv:
                           self.wrist_state.linear_acceleration.y,
                           self.wrist_state.linear_acceleration.z)
 
-            # return joint_pos + angular_vel + linear_acc
+            return joint_pos + angular_vel + linear_acc
         
             return angular_vel + linear_acc
         
@@ -362,8 +368,9 @@ class AlohaEnv:
         elif self.robot_name == 'yaskawa':
             return self.master_joint_states.position + (self.master_gripper_states.position,)
         elif self.robot_name == 'br_hand':
-            return self.master_joint_states.position
-
+            # return self.master_joint_states.position
+            
+            joint_pos = self.master_joint_states.position
             angular_vel = (self.wrist_state.angular_velocity.x,
                            self.wrist_state.angular_velocity.y,
                            self.wrist_state.angular_velocity.z)
@@ -371,7 +378,7 @@ class AlohaEnv:
                           self.wrist_state.linear_acceleration.y,
                           self.wrist_state.linear_acceleration.z)
             
-            return angular_vel + linear_acc
+            return joint_pos + angular_vel + linear_acc
 
         
     def get_xaction(self):
